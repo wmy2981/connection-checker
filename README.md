@@ -48,7 +48,7 @@
 ├── Dockerfile            # 多阶段构建（node 构建 → python 运行）
 ├── docker-compose.yml    # 示例部署
 ├── pyproject.toml        # Python 依赖 / 工具链 / 发行配置
-└── CHANGELOG.md          # 版本变更记录（semantic-release 维护）
+└── CHANGELOG.md          # 版本变更记录（主要里程碑人工维护）
 ```
 
 ## 快速开始（Docker）
@@ -182,7 +182,9 @@ GitHub Actions 在每次 `main` 推送时执行：
 
 1. ruff 代码检查 + pytest 测试
 2. buildx 构建 amd64 / arm64 镜像，推送至 `ghcr.io/wmy2981/connection-checker`（`latest` + `sha`）
-3. python-semantic-release 依据 Conventional Commits 自动生成 CHANGELOG、打 `vX.Y.Z` tag 并发布 GitHub Release
+3. python-semantic-release 依据 Conventional Commits 自动生成 **GitHub Release 说明**、打 `vX.Y.Z` tag 并发布 Release
+
+> GitHub Release 说明由 commit 历史自动生成；仓库内 `CHANGELOG.md` 为人工维护的版本变更记录，主要里程碑由维护者整理。
 
 版本号以 `pyproject.toml` 为基准、以 git tag 为准。
 
