@@ -1,0 +1,214 @@
+<script setup lang="ts">
+import { reactive, ref, watch } from 'vue'
+import {
+  NButton,
+  NCard,
+  NForm,
+  NFormItem,
+  NInput,
+  NInputNumber,
+  NModal,
+  NSelect,
+  NSpace,
+  NSwitch,
+  NTimePicker,
+  useMessage,
+} from 'naive-ui'
+
+import type { CheckMethod, Target, TargetInput, TimeRange } from '@/types'
+
+const props = defineProps<{ show: boolean; target: Target | null }>()
+const emit = defineEmits<{
+  'update:show': [value: boolean]
+  save: [payload: TargetInput]
+}>()
+
+const message = useMessage()
+const saving = ref(false)
+
+const form = reactive({
+  name: '',
+  ip: '',
+  check_method: 'ping' as CheckMethod,
+  check_interval: 60,
+  enabled: true,
+  port: 80,
+  scheme: 'http' as 'http' | 'https',
+  url_path: '/',
+  timeout: null as number | null,
+  time_ranges: [{ start: '00:00', end: '23:59' }] as TimeRange[],
+})
+
+const methodOptions = [
+  { label: 'Ping', value: 'ping' },
+  { label: 'TCP 端口', value: 'port' },
+  { label: 'HTTP(S)', value: 'http' },
+]
+const schemeOptions = [
+  { label: 'http', value: 'http' },
+  { label: 'https', value: 'https' },
+]
+
+watch(
+  () => [props.show, props.target],
+  () => {
+    if (!props.show) return
+    const t = props.target
+    form.name = t?.name ?? ''
+    form.ip = t?.ip ?? ''
+    form.check_method = t?.check_method ?? 'ping'
+    form.check_interval = t?.check_interval ?? 60
+    form.enabled = t?.enabled ?? true
+    form.port = t?.port ?? 80
+    form.scheme = t?.scheme ?? 'http'
+    form.url_path = t?.url_path ?? '/'
+    form.timeout = t?.timeout ?? null
+    form.time_ranges =
+      t && t.time_ranges.length ? t.time_ranges.map((r) => ({ ...r })) : [{ start: '00:00', end: '23:59' }]
+  },
+)
+
+function addRange() {
+  form.time_ranges.push({ start: '00:00', end: '23:59' })
+}
+
+function removeRange(index: number) {
+  form.time_ranges.splice(index, 1)
+}
+
+function validate(): string | null {
+  if (!form.name?.trim() && !form.ip.trim()) return '请填写名称或 IP'
+  if (!form.ip.trim()) return '请填写 IP 或主机名'
+  if (form.check_method === 'port' && !form.port) return '端口检查需要填写端口'
+  return null
+}
+
+function submit() {
+  const err = validate()
+  if (err) {
+    message.error(err)
+    return
+  }
+  const payload: TargetInput = {
+    name: form.name.trim() || null,
+    ip: form.ip.trim(),
+    check_method: form.check_method,
+    check_interval: form.check_interval,
+    enabled: form.enabled,
+    time_ranges: form.time_ranges.length ? form.time_ranges : [{ start: '00:00', end: '23:59' }],
+    port: form.check_method === 'port' ? form.port : null,
+    scheme: form.scheme,
+    url_path: form.check_method === 'http' ? form.url_path : '/',
+    timeout: form.timeout,
+  }
+  emit('save', payload)
+}
+</script>
+
+<template>
+  <n-modal
+    :show="show"
+    :mask-closable="false"
+    @update:show="(v: boolean) => emit('update:show', v)"
+  >
+    <n-card
+      style="width: 560px; max-width: 94vw"
+      :title="target ? '编辑目标' : '新增目标'"
+      :bordered="false"
+      size="huge"
+      role="dialog"
+      aria-modal="true"
+    >
+      <n-form label-placement="left" label-width="90">
+        <n-form-item label="名称">
+          <n-input v-model:value="form.name" placeholder="可选，便于识别" />
+        </n-form-item>
+        <n-form-item label="IP / 主机名" required>
+          <n-input v-model:value="form.ip" placeholder="如 8.8.8.8 或 example.com" />
+        </n-form-item>
+        <n-form-item label="检查方式" required>
+          <n-select v-model:value="form.check_method" :options="methodOptions" />
+        </n-form-item>
+
+        <template v-if="form.check_method === 'port'">
+          <n-form-item label="端口" required>
+            <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width: 100%" />
+          </n-form-item>
+        </template>
+
+        <template v-if="form.check_method === 'http'">
+          <n-form-item label="协议">
+            <n-select v-model:value="form.scheme" :options="schemeOptions" />
+          </n-form-item>
+          <n-form-item label="路径">
+            <n-input v-model:value="form.url_path" placeholder="/" />
+          </n-form-item>
+        </template>
+
+        <n-form-item label="间隔(秒)" required>
+          <n-input-number v-model:value="form.check_interval" :min="5" :step="5" style="width: 100%" />
+        </n-form-item>
+        <n-form-item label="超时(秒)">
+          <n-input-number v-model:value="form.timeout" :min="0.1" :step="0.5" :show-button="false" style="width: 100%" placeholder="留空用默认值" />
+        </n-form-item>
+        <n-form-item label="启用">
+          <n-switch v-model:value="form.enabled" />
+        </n-form-item>
+
+        <n-form-item label="时间窗口">
+          <n-space vertical style="width: 100%">
+            <div
+              v-for="(range, idx) in form.time_ranges"
+              :key="idx"
+              class="range-row"
+            >
+              <n-time-picker
+                :value="range.start as unknown as number"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="开始"
+                @update:value="(v: unknown) => (range.start = (v ?? '') as string)"
+              />
+              <span class="sep">—</span>
+              <n-time-picker
+                :value="range.end as unknown as number"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="结束"
+                @update:value="(v: unknown) => (range.end = (v ?? '') as string)"
+              />
+              <n-button size="small" quaternary type="error" :disabled="form.time_ranges.length <= 1" @click="removeRange(idx)">
+                删除
+              </n-button>
+            </div>
+            <n-button size="small" dashed @click="addRange">添加时间段</n-button>
+            <span class="hint">跨午夜（如 22:00–06:00）同样支持</span>
+          </n-space>
+        </n-form-item>
+      </n-form>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="emit('update:show', false)">取消</n-button>
+          <n-button type="primary" :loading="saving" @click="submit">保存</n-button>
+        </n-space>
+      </template>
+    </n-card>
+  </n-modal>
+</template>
+
+<style scoped>
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.sep {
+  color: var(--n-text-color-3);
+}
+.hint {
+  font-size: 12px;
+  color: var(--n-text-color-3);
+}
+</style>

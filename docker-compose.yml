@@ -1,0 +1,21 @@
+services:
+  connection-checker:
+    image: ghcr.io/wmy2981/connection-checker:latest
+    build:
+      context: .
+    container_name: connection-checker
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # 必改：登录访问码。不设置则首次启动自动生成并打印到日志。
+      CONNECTCHECKER_ACCESS_CODE: change-me
+      # HTTPS 反向代理部署时开启 Secure Cookie
+      # CONNECTCHECKER_COOKIE_SECURE: "true"
+      # 告警通知地址（Gotify / 企业微信 / 自建，POST JSON）
+      # CONNECTCHECKER_WEBHOOK_URL: https://gotify.example.com/message?token=xxx
+    cap_add:
+      # ICMP ping 需要原始套接字权限
+      - NET_RAW
+    volumes:
+      - ./data:/app/data
