@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { NAlert, NButton, NCard, NInput, useMessage } from 'naive-ui'
 
 import { api } from '@/api'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const router = useRouter()
 const message = useMessage()
@@ -32,6 +33,7 @@ async function submit() {
 
 <template>
   <div class="login-wrap">
+    <div class="theme-btn"><ThemeToggle /></div>
     <n-card title="连接检查工具" class="login-card">
       <p class="tip">请输入访问码以进入系统</p>
       <n-input
@@ -55,12 +57,20 @@ async function submit() {
   align-items: center;
   justify-content: center;
   padding: 16px;
+  background: var(--cc-bg);
+  position: relative;
+}
+.theme-btn {
+  position: absolute;
+  top: 16px;
+  right: 20px;
 }
 .login-card {
   width: 360px;
+  max-width: 100%;
 }
 .tip {
-  color: var(--n-text-color-3);
+  color: var(--cc-text-3);
   margin: 0 0 16px;
 }
 .err {

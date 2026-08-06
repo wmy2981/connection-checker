@@ -10,8 +10,6 @@ import {
   NDescriptions,
   NDescriptionsItem,
   NEmpty,
-  NGrid,
-  NGridItem,
   NInput,
   NModal,
   NPagination,
@@ -25,6 +23,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { api } from '@/api'
 import StatsCards from '@/components/StatsCards.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 import type { CheckResult, ResultFilterParams, StatsSummary } from '@/types'
 
 const router = useRouter()
@@ -207,7 +206,11 @@ const columns: DataTableColumns<CheckResult> = [
     title: '目标',
     key: 'ip',
     minWidth: 180,
-    render: (r) => `${r.target_name ?? ''} ${r.ip}`.trim(),
+    render: (r) =>
+      h('div', { class: 'cell-target' }, [
+        h('div', { class: 'cell-name' }, r.target_name ?? r.ip),
+        r.target_name ? h('div', { class: 'cell-ip' }, r.ip) : null,
+      ]),
   },
   {
     title: '方式',
@@ -263,22 +266,27 @@ const columns: DataTableColumns<CheckResult> = [
 <template>
   <n-layout class="page">
     <n-layout-header bordered class="header">
-      <div class="brand">连接检查工具</div>
-      <n-space align="center">
-        <n-button size="small" type="primary" :loading="running" @click="runAll">全部立即检查</n-button>
-        <n-button size="small" @click="router.push('/config')">配置管理</n-button>
-        <n-button size="small" quaternary @click="logout">退出登录</n-button>
-      </n-space>
+      <div class="container header-inner">
+        <div class="brand">连接检查工具</div>
+        <n-space align="center" wrap :size="8">
+          <n-button size="small" type="primary" :loading="running" @click="runAll">全部立即检查</n-button>
+          <n-button size="small" @click="router.push('/config')">配置管理</n-button>
+          <ThemeToggle />
+          <n-button size="small" quaternary @click="logout">退出登录</n-button>
+        </n-space>
+      </div>
     </n-layout-header>
 
     <n-layout-content class="content">
-      <n-space vertical size="large">
-        <StatsCards :stats="stats" />
+      <div class="container">
+        <n-space vertical size="large">
+          <StatsCards :stats="stats" />
 
-        <n-card title="目标状态" size="small">
-          <n-grid v-if="stats && stats.target_status.length" :cols="1" :x-gap="12" :y-gap="12" responsive="screen" item-responsive>
-            <n-grid-item v-for="t in stats.target_status" :key="t.target_id" span="1 m:1">
+          <n-card title="目标状态" size="small">
+            <div v-if="stats && stats.target_status.length" class="targets-grid">
               <div
+                v-for="t in stats.target_status"
+                :key="t.target_id"
                 class="target-card"
                 :class="{ disabled: !t.enabled }"
                 @click="filterByTarget(t.target_id)"
@@ -304,56 +312,58 @@ const columns: DataTableColumns<CheckResult> = [
                   检查
                 </n-button>
               </div>
-            </n-grid-item>
-          </n-grid>
-          <n-empty v-else description="还没有检查目标，去「配置管理」添加" />
-        </n-card>
-
-        <n-card title="检查记录" size="small">
-          <n-space align="center" wrap :size="12">
-            <n-select v-model:value="filters.status" :options="statusOptions" style="width: 130px" />
-            <n-input v-model:value="filters.ip" placeholder="IP 筛选" clearable style="width: 160px" />
-            <n-date-picker v-model:value="dateValue" style="width: 150px" @update:value="setDateFilter" />
-            <n-time-picker
-              :value="filters.time_start as unknown as number"
-              format="HH:mm"
-              value-format="HH:mm"
-              placeholder="开始时间"
-              style="width: 120px"
-              @update:value="(v: unknown) => (filters.time_start = v ? (v as string) : null)"
-            />
-            <n-time-picker
-              :value="filters.time_end as unknown as number"
-              format="HH:mm"
-              value-format="HH:mm"
-              placeholder="结束时间"
-              style="width: 120px"
-              @update:value="(v: unknown) => (filters.time_end = v ? (v as string) : null)"
-            />
-            <n-button type="primary" secondary @click="applyFilters">查询</n-button>
-            <n-button quaternary @click="resetFilters">重置</n-button>
-          </n-space>
-
-          <div class="table">
-            <n-data-table
-              :columns="columns"
-              :data="results"
-              :loading="loading"
-              :row-key="(r: CheckResult) => r.id"
-              :max-height="520"
-            />
-            <div class="pager">
-              <span class="pager-info">共 {{ total }} 条</span>
-              <n-pagination
-                v-model:page="page"
-                :item-count="total"
-                :page-size="pageSize"
-                @update:page="fetchResults"
-              />
             </div>
-          </div>
-        </n-card>
-      </n-space>
+            <n-empty v-else description="还没有检查目标，去「配置管理」添加" />
+          </n-card>
+
+          <n-card title="检查记录" size="small">
+            <n-space align="center" wrap :size="12">
+              <n-select v-model:value="filters.status" :options="statusOptions" style="width: 130px" />
+              <n-input v-model:value="filters.ip" placeholder="IP 筛选" clearable style="width: 160px" />
+              <n-date-picker v-model:value="dateValue" style="width: 150px" @update:value="setDateFilter" />
+              <n-time-picker
+                :value="filters.time_start as unknown as number"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="开始时间"
+                style="width: 120px"
+                @update:value="(v: unknown) => (filters.time_start = v ? (v as string) : null)"
+              />
+              <n-time-picker
+                :value="filters.time_end as unknown as number"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="结束时间"
+                style="width: 120px"
+                @update:value="(v: unknown) => (filters.time_end = v ? (v as string) : null)"
+              />
+              <n-button type="primary" secondary @click="applyFilters">查询</n-button>
+              <n-button quaternary @click="resetFilters">重置</n-button>
+            </n-space>
+
+            <div class="table">
+              <n-data-table
+                :columns="columns"
+                :data="results"
+                :loading="loading"
+                :row-key="(r: CheckResult) => r.id"
+                :max-height="520"
+                size="small"
+                single-line
+              />
+              <div class="pager">
+                <span class="pager-info">共 {{ total }} 条</span>
+                <n-pagination
+                  v-model:page="page"
+                  :item-count="total"
+                  :page-size="pageSize"
+                  @update:page="fetchResults"
+                />
+              </div>
+            </div>
+          </n-card>
+        </n-space>
+      </div>
     </n-layout-content>
   </n-layout>
 
@@ -388,32 +398,54 @@ const columns: DataTableColumns<CheckResult> = [
   min-height: 100vh;
 }
 .header {
+  padding: 0;
+}
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
+  gap: 12px;
 }
 .brand {
   font-size: 18px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .content {
-  padding: 20px;
-  max-width: 1280px;
+  padding: 24px 0 48px;
+}
+.container {
+  max-width: 1200px;
   margin: 0 auto;
+  padding: 0 24px;
+}
+.targets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+@media (max-width: 480px) {
+  .targets-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .target-card {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--n-border-color);
+  padding: 10px 12px;
+  border: 1px solid var(--cc-panel-border);
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
 }
 .target-card:hover {
-  background: var(--n-hover-color);
+  background: var(--cc-hover);
 }
 .target-card.disabled {
   opacity: 0.55;
@@ -426,24 +458,35 @@ const columns: DataTableColumns<CheckResult> = [
   white-space: nowrap;
 }
 .lat {
-  color: var(--n-text-color-3);
+  color: var(--cc-text-3);
   font-size: 12px;
 }
 .off {
-  color: var(--n-text-color-3);
+  color: var(--cc-text-3);
   font-size: 12px;
 }
 .table {
   margin-top: 14px;
+}
+.cell-name {
+  font-weight: 600;
+  line-height: 1.3;
+}
+.cell-ip {
+  font-size: 12px;
+  color: var(--cc-text-3);
+  line-height: 1.3;
 }
 .pager {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-top: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .pager-info {
-  color: var(--n-text-color-3);
+  color: var(--cc-text-3);
   font-size: 13px;
 }
 .extra {
@@ -452,5 +495,17 @@ const columns: DataTableColumns<CheckResult> = [
   max-height: 200px;
   overflow: auto;
   white-space: pre-wrap;
+}
+@media (max-width: 640px) {
+  .header-inner {
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+  .container {
+    padding: 0 16px;
+  }
+  .content {
+    padding: 16px 0 32px;
+  }
 }
 </style>

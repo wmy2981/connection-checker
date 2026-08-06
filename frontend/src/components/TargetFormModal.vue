@@ -205,10 +205,10 @@ function submit() {
   width: 100%;
 }
 .sep {
-  color: var(--n-text-color-3);
+  color: var(--cc-text-3);
 }
 .hint {
   font-size: 12px;
-  color: var(--n-text-color-3);
+  color: var(--cc-text-3);
 }
 </style>

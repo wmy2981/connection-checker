@@ -15,6 +15,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { api } from '@/api'
 import TargetFormModal from '@/components/TargetFormModal.vue'
+import ThemeToggle from '@/components/ThemeToggle.vue'
 import type { Target, TargetInput } from '@/types'
 
 const router = useRouter()
@@ -153,28 +154,33 @@ const columns: DataTableColumns<Target> = [
 <template>
   <n-layout class="page">
     <n-layout-header bordered class="header">
-      <div class="brand">配置管理</div>
-      <n-space align="center">
-        <n-button size="small" @click="router.push('/dashboard')">返回仪表盘</n-button>
-        <n-button size="small" type="primary" @click="openCreate">新增目标</n-button>
-      </n-space>
+      <div class="container header-inner">
+        <div class="brand">配置管理</div>
+        <n-space align="center" wrap :size="8">
+          <n-button size="small" @click="router.push('/dashboard')">返回仪表盘</n-button>
+          <ThemeToggle />
+          <n-button size="small" type="primary" @click="openCreate">新增目标</n-button>
+        </n-space>
+      </div>
     </n-layout-header>
 
     <n-layout-content class="content">
-      <n-card title="检查目标" size="small">
-        <template #header-extra>
-          <n-button size="small" secondary @click="load">刷新</n-button>
-        </template>
-        <n-data-table
-          v-if="targets.length"
-          :columns="columns"
-          :data="targets"
-          :loading="loading"
-          :row-key="(t: Target) => t.id"
-          :max-height="640"
-        />
-        <n-empty v-else description="暂无检查目标，点击「新增目标」添加" />
-      </n-card>
+      <div class="container">
+        <n-card title="检查目标" size="small">
+          <template #header-extra>
+            <n-button size="small" secondary @click="load">刷新</n-button>
+          </template>
+          <n-data-table
+            v-if="targets.length"
+            :columns="columns"
+            :data="targets"
+            :loading="loading"
+            :row-key="(t: Target) => t.id"
+            :max-height="640"
+          />
+          <n-empty v-else description="暂无检查目标，点击「新增目标」添加" />
+        </n-card>
+      </div>
     </n-layout-content>
   </n-layout>
 
@@ -190,18 +196,40 @@ const columns: DataTableColumns<Target> = [
   min-height: 100vh;
 }
 .header {
+  padding: 0;
+}
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
+  gap: 12px;
 }
 .brand {
   font-size: 18px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .content {
-  padding: 20px;
-  max-width: 1280px;
+  padding: 24px 0 48px;
+}
+.container {
+  max-width: 1200px;
   margin: 0 auto;
+  padding: 0 24px;
+}
+@media (max-width: 640px) {
+  .header-inner {
+    padding: 10px 16px;
+    flex-wrap: wrap;
+  }
+  .container {
+    padding: 0 16px;
+  }
+  .content {
+    padding: 16px 0 32px;
+  }
 }
 </style>
