@@ -52,8 +52,4 @@ branch = "main"
 tag_format = "v{version}"
 commit_author = "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 commit_message = "chore(release): {version} [skip ci]"
-major_on_zero = true
 assets = ["CHANGELOG.md"]
-
-[tool.semantic_release.changelog]
-mode = "full"
