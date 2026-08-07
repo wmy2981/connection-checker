@@ -147,23 +147,28 @@ function setDateFilter(value: number | null) {
   filters.date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-async function runAll() {
+function runAll() {
+  const count = stats.value?.enabled_targets ?? 0
+  message.success(`已触发 ${count} 个目标检查`)
   running.value = true
-  try {
-    const r = await api.runChecks()
-    message.success(`已触发 ${r.length} 个目标检查`)
-    refresh()
-  } catch (e) {
-    message.error(errText(e))
-  } finally {
-    running.value = false
-  }
+  api
+    .runChecks()
+    .then(refresh)
+    .catch((e) => message.error(errText(e)))
+    .finally(() => {
+      running.value = false
+    })
 }
 
 async function runOne(targetId: string) {
   try {
     const r = await api.runChecks(targetId)
-    message.success(`检查完成：${r[0]?.status ?? '完成'}`)
+    const status = r[0]?.status ?? 'success'
+    const label = statusTag[status]?.label ?? status
+    const text = `检查完成：${label}`
+    if (status === 'success') message.success(text)
+    else if (status === 'timeout') message.warning(text)
+    else message.error(text)
     refresh()
   } catch (e) {
     message.error(errText(e))

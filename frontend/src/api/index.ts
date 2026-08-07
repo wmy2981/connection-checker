@@ -23,7 +23,11 @@ function buildQuery(params: ResultFilterParams): string {
 export const api = {
   login: (access_code: string) =>
     request<{ ok: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ access_code }) }),
-  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  logout: () =>
+    request<{ ok: boolean }>('/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }),
   me: () => request<{ authenticated: boolean }>('/auth/me'),
 
   listTargets: () => request<Target[]>('/targets'),
