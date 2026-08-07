@@ -10,8 +10,9 @@
 - 每个目标独立检查间隔、独立时间窗口（支持跨午夜，如 `22:00–06:00`）、独立超时
 - 异步调度：asyncio 每目标一个任务，配置变更即时生效，可手动「立即检查」
 - 实时结果：SSE 推送，仪表盘秒级更新，无需轮询
-- 结果查询：状态 / IP / 目标 / 日期 / 时间段筛选 + 服务端分页，JSONL 追加存储（默认保留最近 50000 条）
-- 告警通知：目标连续失败达阈值（默认 3 次）触发 Webhook，恢复时通知；兼容 Gotify / 企业微信 / 自建服务
+- 结果查询：状态 / IP（支持 `*` 通配符）/ 目标名称 / 日期 / 时间段筛选 + 服务端分页，JSONL 追加存储（默认保留最近 50000 条）
+- 成功率趋势：仪表盘展示近 24 小时每小时成功率与平均延迟
+- 告警通知：目标连续失败达阈值触发 Webhook，恢复时通知；地址与阈值在「配置管理」页设置（存于 `config.json`），兼容 Gotify / 企业微信 / 自建服务
 - 认证：单访问码 + argon2 哈希存储，JWT 写入 HttpOnly Cookie，CSRF 纵深防御
 - 开箱即用：单一镜像 + 挂载数据卷即可运行
 
@@ -127,9 +128,9 @@ cd frontend && npm run build
 | `CONNECTCHECKER_PING_COUNT` | `4` | Ping 单次检查发包数 |
 | `CONNECTCHECKER_CONNECT_TIMEOUT` | `3.0` | Ping / TCP 默认超时（秒） |
 | `CONNECTCHECKER_HTTP_TIMEOUT` | `5.0` | HTTP 默认超时（秒） |
-| `CONNECTCHECKER_NOTIFY_FAIL_THRESHOLD` | `3` | 连续失败触发告警的阈值 |
-| `CONNECTCHECKER_WEBHOOK_URL` | 空 | 告警推送地址（POST JSON） |
 | `CONNECTCHECKER_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
+
+> Webhook 告警配置（地址、启用开关、失败阈值）在「配置管理」页设置，存于 `config.json`，见下方说明。
 
 ## 检查目标
 
@@ -150,7 +151,7 @@ cd frontend && npm run build
 
 ## Webhook 告警
 
-设置 `CONNECTCHECKER_WEBHOOK_URL` 后，目标连续失败达到阈值时 POST 如下 JSON；恢复时再推送一次：
+在「配置管理」→「告警通知（Webhook）」中设置推送地址、启用开关与连续失败阈值，配置保存在 `config.json`（非环境变量）。目标连续失败达到阈值时 POST 如下 JSON；恢复时再推送一次：
 
 ```json
 {
