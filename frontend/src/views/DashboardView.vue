@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NBadge,
@@ -43,10 +43,18 @@ const dateValue = ref<number | null>(null)
 const filters = reactive({
   status: 'all',
   ip: '',
+  target_name: '',
   target_id: '',
   date: null as string | null,
   time_start: null as string | null,
   time_end: null as string | null,
+})
+
+const targetNameOptions = computed(() => {
+  const names = stats.value?.target_status
+    .map((t) => t.name)
+    .filter((n): n is string => !!n)
+  return [...new Set(names ?? [])].map((n) => ({ label: n, value: n }))
 })
 
 const statusOptions = [
@@ -124,6 +132,7 @@ function applyFilters() {
 function resetFilters() {
   filters.status = 'all'
   filters.ip = ''
+  filters.target_name = ''
   filters.target_id = ''
   filters.date = null
   filters.time_start = null
@@ -324,7 +333,19 @@ const columns: DataTableColumns<CheckResult> = [
           <n-card title="检查记录" size="small">
             <n-space align="center" wrap :size="12">
               <n-select v-model:value="filters.status" :options="statusOptions" style="width: 130px" />
-              <n-input v-model:value="filters.ip" placeholder="IP 筛选" clearable style="width: 160px" />
+              <n-input
+                v-model:value="filters.ip"
+                placeholder="IP 筛选（如 192.168.*）"
+                clearable
+                style="width: 170px"
+              />
+              <n-select
+                v-model:value="filters.target_name"
+                :options="targetNameOptions"
+                placeholder="目标名称"
+                clearable
+                style="width: 150px"
+              />
               <n-date-picker v-model:value="dateValue" style="width: 150px" @update:value="setDateFilter" />
               <n-time-picker
                 :value="filters.time_start as unknown as number"

@@ -96,6 +96,7 @@ class CheckResult(BaseModel):
 class ResultFilter(BaseModel):
     status: StatusOrAll | None = None
     ip: str | None = None
+    target_name: str | None = None
     target_id: str | None = None
     date: str | None = None  # YYYY-MM-DD
     time_start: str | None = None

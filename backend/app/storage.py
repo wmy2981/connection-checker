@@ -4,6 +4,7 @@ import json
 import os
 from collections import deque
 from datetime import datetime
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from app.models import CheckResult, Paginated, ResultFilter, Target, new_id
@@ -19,6 +20,13 @@ def atomic_write(path: Path, text: str) -> None:
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def ip_matches(pattern: str, ip: str) -> bool:
+    """IP 筛选：含 * / ? 时按通配符全匹配，否则保留原来的子串匹配。"""
+    if "*" in pattern or "?" in pattern:
+        return fnmatchcase(ip, pattern)
+    return pattern in ip
 
 
 class ConfigStore:
@@ -152,7 +160,9 @@ class ResultStore:
         def matches(r: CheckResult) -> bool:
             if f.status not in (None, "all") and r.status != f.status:
                 return False
-            if f.ip and f.ip not in r.ip:
+            if f.ip and not ip_matches(f.ip, r.ip):
+                return False
+            if f.target_name and r.target_name != f.target_name:
                 return False
             if f.target_id and r.target_id != f.target_id:
                 return False

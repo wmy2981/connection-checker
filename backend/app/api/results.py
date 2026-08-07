@@ -13,6 +13,7 @@ async def query_results(
     request: Request,
     status: str | None = Query(default=None),
     ip: str | None = Query(default=None),
+    target_name: str | None = Query(default=None),
     target_id: str | None = Query(default=None),
     date: str | None = Query(default=None),
     time_start: str | None = Query(default=None),
@@ -24,6 +25,7 @@ async def query_results(
     filt = ResultFilter(
         status=status,
         ip=ip,
+        target_name=target_name,
         target_id=target_id,
         date=date,
         time_start=time_start,

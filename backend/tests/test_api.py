@@ -92,6 +92,32 @@ def test_manual_run_unknown_target(logged_client: TestClient):
     assert resp.status_code == 404
 
 
+def test_results_filter_by_target_name(logged_client: TestClient, fake_checker, no_scheduler):
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload(name="路由器", ip="192.168.1.1"))
+    logged_client.post("/api/v1/targets", json=_payload(name="公网", ip="8.8.8.8"))
+    logged_client.post("/api/v1/checks/run", json={})
+
+    r = logged_client.get("/api/v1/results", params={"target_name": "路由器"}).json()
+    assert r["total"] == 1
+    assert r["results"][0]["target_name"] == "路由器"
+
+    missing = logged_client.get(
+        "/api/v1/results", params={"target_name": "不存在"}
+    ).json()
+    assert missing["total"] == 0
+
+
+def test_results_filter_ip_wildcard(logged_client: TestClient, fake_checker, no_scheduler):
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload(name="a", ip="192.168.1.1"))
+    logged_client.post("/api/v1/targets", json=_payload(name="b", ip="192.168.2.2"))
+    logged_client.post("/api/v1/checks/run", json={})
+
+    assert logged_client.get("/api/v1/results", params={"ip": "192.168.*"}).json()["total"] == 2
+    assert logged_client.get("/api/v1/results", params={"ip": "192.168.1.*"}).json()["total"] == 1
+
+
 def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     fake_checker(status="fail", message="超时了")
     logged_client.post("/api/v1/targets", json=_payload())

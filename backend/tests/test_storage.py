@@ -99,6 +99,47 @@ async def test_result_store_loads_history(tmp_path):
     assert (await store2.recent(10))[0].status == "fail"
 
 
+async def test_result_store_ip_wildcard(tmp_path):
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    ips = ["192.168.1.5", "192.168.2.9", "10.0.0.1", "192.168.1.200"]
+    for i, ip in enumerate(ips):
+        await store.append(
+            CheckResult(
+                target_id=f"t{i}",
+                target_name=f"目标{i}",
+                ip=ip,
+                check_method="ping",
+                status="success",
+                checked_at=datetime.now(timezone.utc),
+            )
+        )
+
+    assert (await store.query(ResultFilter(ip="192.168.*", page_size=100))).total == 3
+    assert (await store.query(ResultFilter(ip="192.168.1.*", page_size=100))).total == 2
+    # 无通配符时保持原有子串匹配
+    assert (await store.query(ResultFilter(ip="168.1", page_size=100))).total == 2
+
+
+async def test_result_store_filter_by_target_name(tmp_path):
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    for _ in range(3):
+        await store.append(_result("a", "success", datetime.now(timezone.utc)))
+    await store.append(
+        CheckResult(
+            target_id="b",
+            target_name="内网",
+            ip="10.0.0.2",
+            check_method="ping",
+            status="success",
+            checked_at=datetime.now(timezone.utc),
+        )
+    )
+
+    assert (await store.query(ResultFilter(target_name="目标a", page_size=100))).total == 3
+    assert (await store.query(ResultFilter(target_name="内网", page_size=100))).total == 1
+    assert (await store.query(ResultFilter(target_name="不存在", page_size=100))).total == 0
+
+
 async def test_latest_per_target_and_counts(tmp_path):
     store = ResultStore(tmp_path / "results.jsonl", max_records=100)
     for _ in range(3):
