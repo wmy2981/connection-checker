@@ -94,3 +94,24 @@ export interface StatsSummary {
   latest_check_at: string | null
   target_status: TargetStatus[]
 }
+
+export interface WebhookConfig {
+  enabled: boolean
+  url: string | null
+  fail_threshold: number
+}
+
+export interface TrendBucket {
+  bucket: string
+  total: number
+  success: number
+  fail: number
+  timeout: number
+  error: number
+  avg_latency_ms: number | null
+}
+
+export interface TrendData {
+  hours: number
+  buckets: TrendBucket[]
+}

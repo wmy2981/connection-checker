@@ -118,6 +118,42 @@ def test_results_filter_ip_wildcard(logged_client: TestClient, fake_checker, no_
     assert logged_client.get("/api/v1/results", params={"ip": "192.168.1.*"}).json()["total"] == 1
 
 
+def test_webhook_settings_crud(logged_client: TestClient):
+    cfg = logged_client.get("/api/v1/settings/webhook").json()
+    assert cfg["enabled"] is True
+    assert cfg["url"] is None
+    assert cfg["fail_threshold"] == 3
+
+    updated = logged_client.put(
+        "/api/v1/settings/webhook",
+        json={"enabled": True, "url": "https://gotify.example.com/message", "fail_threshold": 5},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["fail_threshold"] == 5
+
+    cfg = logged_client.get("/api/v1/settings/webhook").json()
+    assert cfg["url"] == "https://gotify.example.com/message"
+    assert cfg["fail_threshold"] == 5
+
+
+def test_webhook_settings_validation(logged_client: TestClient):
+    resp = logged_client.put(
+        "/api/v1/settings/webhook", json={"enabled": True, "url": "x", "fail_threshold": 0}
+    )
+    assert resp.status_code == 422
+
+
+def test_stats_trend(logged_client: TestClient, fake_checker, no_scheduler):
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload())
+    logged_client.post("/api/v1/checks/run", json={})
+
+    trend = logged_client.get("/api/v1/stats/trend", params={"hours": 24}).json()
+    assert len(trend["buckets"]) == 24
+    assert trend["buckets"][-1]["total"] == 1
+    assert trend["buckets"][-1]["success"] == 1
+
+
 def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     fake_checker(status="fail", message="超时了")
     logged_client.post("/api/v1/targets", json=_payload())

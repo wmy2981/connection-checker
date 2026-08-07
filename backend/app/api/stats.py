@@ -1,5 +1,5 @@
 """概览统计。"""
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.auth import require_auth
 from app.models import StatsSummary
@@ -47,3 +47,9 @@ async def summary(request: Request) -> StatsSummary:
         latest_check_at=latest_check_at,
         target_status=target_status,
     )
+
+
+@router.get("/trend")
+async def trend(request: Request, hours: int = Query(default=24, ge=1, le=168)) -> dict:
+    result_store = request.app.state.result_store
+    return {"hours": hours, "buckets": await result_store.trend(hours)}

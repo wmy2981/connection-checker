@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from app.models import CheckResult, ResultFilter, Target, TimeRange
+from app.models import CheckResult, ResultFilter, Target, TimeRange, WebhookConfig
 from app.storage import ConfigStore, ResultStore
 
 
@@ -138,6 +138,52 @@ async def test_result_store_filter_by_target_name(tmp_path):
     assert (await store.query(ResultFilter(target_name="目标a", page_size=100))).total == 3
     assert (await store.query(ResultFilter(target_name="内网", page_size=100))).total == 1
     assert (await store.query(ResultFilter(target_name="不存在", page_size=100))).total == 0
+
+
+async def test_config_store_webhook_persists_and_reloads(tmp_path):
+    store = ConfigStore(tmp_path / "data")
+    assert await store.get_webhook_config() == WebhookConfig()
+
+    await store.update_webhook_config(
+        WebhookConfig(enabled=True, url="https://gotify.example.com/message", fail_threshold=5)
+    )
+
+    store2 = ConfigStore(tmp_path / "data")
+    cfg = await store2.get_webhook_config()
+    assert cfg.url == "https://gotify.example.com/message"
+    assert cfg.fail_threshold == 5
+    assert cfg.enabled is True
+
+    raw = json.loads((tmp_path / "data" / "config.json").read_text(encoding="utf-8"))
+    assert raw["webhook"]["fail_threshold"] == 5
+
+
+async def test_result_store_trend(tmp_path):
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    for _ in range(3):
+        await store.append(
+            CheckResult(
+                target_id="t1",
+                target_name="目标t1",
+                ip="8.8.8.8",
+                check_method="ping",
+                status="success",
+                latency_ms=10.0,
+                checked_at=now,
+            )
+        )
+    await store.append(_result("t1", "fail", now))
+
+    buckets = await store.trend(hours=24)
+    assert len(buckets) == 24
+    last = buckets[-1]  # 当前小时桶
+    assert last["total"] == 4
+    assert last["success"] == 3
+    assert last["fail"] == 1
+    assert last["timeout"] == 0
+    assert last["error"] == 0
+    assert last["avg_latency_ms"] == 10.0
 
 
 async def test_latest_per_target_and_counts(tmp_path):

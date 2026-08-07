@@ -18,10 +18,6 @@ class Settings(BaseSettings):
     # 结果保留
     result_max_records: int = 50000
 
-    # 告警通知
-    notify_fail_threshold: int = 3  # 连续失败达到该次数触发 Webhook
-    webhook_url: str | None = None  # 支持 Gotify / 企业微信 / 自建（POST JSON）
-
     # 检查参数默认值
     ping_count: int = 4
     connect_timeout: float = 3.0  # ping/TCP 超时（秒）

@@ -5,20 +5,21 @@ from datetime import datetime, timezone
 import httpx
 
 from app.models import CheckResult
+from app.storage import ConfigStore
 
 logger = logging.getLogger(__name__)
 
 
 class Notifier:
-    def __init__(self, webhook_url: str | None, fail_threshold: int) -> None:
-        self.webhook_url = webhook_url
-        self.fail_threshold = max(1, fail_threshold)
+    def __init__(self, config_store: ConfigStore) -> None:
+        self.config_store = config_store
         self._fails: dict[str, int] = {}
         self._alerted: set[str] = set()
 
     async def observe(self, result: CheckResult) -> None:
         """根据一条新检查结果更新失败计数并在跨越阈值时发送通知。"""
-        if not self.webhook_url:
+        cfg = await self.config_store.get_webhook_config()
+        if not cfg.enabled or not cfg.url:
             return
         tid = result.target_id
         if result.status == "success":
@@ -26,16 +27,16 @@ class Notifier:
             self._fails[tid] = 0
             if was_alerted:
                 self._alerted.discard(tid)
-                await self._send("恢复", "连接已恢复正常", result)
+                await self._send("恢复", "连接已恢复正常", result, cfg.url)
             return
 
         n = self._fails.get(tid, 0) + 1
         self._fails[tid] = n
-        if n == self.fail_threshold:
+        if n == cfg.fail_threshold:
             self._alerted.add(tid)
-            await self._send("告警", f"连续 {n} 次检查失败", result)
+            await self._send("告警", f"连续 {n} 次检查失败", result, cfg.url)
 
-    async def _send(self, kind: str, summary: str, result: CheckResult) -> None:
+    async def _send(self, kind: str, summary: str, result: CheckResult, url: str) -> None:
         payload = {
             "title": f"[{kind}] {result.target_name or result.ip}",
             "message": f"{summary}: {result.message}",
@@ -52,7 +53,7 @@ class Notifier:
         }
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.post(self.webhook_url, json=payload)
+                resp = await client.post(url, json=payload)
                 resp.raise_for_status()
         except Exception as e:  # noqa: BLE001
             logger.error("Webhook 通知失败: %s", e)

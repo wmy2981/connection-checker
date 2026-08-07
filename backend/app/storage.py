@@ -3,11 +3,12 @@ import asyncio
 import json
 import os
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from fnmatch import fnmatchcase
 from pathlib import Path
+from typing import Any
 
-from app.models import CheckResult, Paginated, ResultFilter, Target, new_id
+from app.models import CheckResult, Paginated, ResultFilter, Target, WebhookConfig, new_id
 from app.timeutil import hhmm_in_range
 
 
@@ -37,6 +38,7 @@ class ConfigStore:
         self.path = data_dir / "config.json"
         self._lock = asyncio.Lock()
         self.targets: dict[str, Target] = {}
+        self._webhook = WebhookConfig()
         self._load()
 
     def _load(self) -> None:
@@ -55,6 +57,12 @@ class ConfigStore:
                 self.targets[t.id] = t
             except Exception:
                 continue  # 单条损坏不拖垮整体
+        raw_webhook = raw.get("webhook")
+        if isinstance(raw_webhook, dict):
+            try:
+                self._webhook = WebhookConfig.model_validate(raw_webhook)
+            except Exception:
+                pass
 
     def _persist(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -62,6 +70,7 @@ class ConfigStore:
             "version": 1,
             "last_updated": now_iso(),
             "check_targets": [t.model_dump(mode="json") for t in self.targets.values()],
+            "webhook": self._webhook.model_dump(mode="json"),
         }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -106,6 +115,15 @@ class ConfigStore:
             candidate = new_id()
             if candidate not in existing:
                 return candidate
+
+    async def get_webhook_config(self) -> WebhookConfig:
+        return self._webhook
+
+    async def update_webhook_config(self, cfg: WebhookConfig) -> WebhookConfig:
+        async with self._lock:
+            self._webhook = cfg
+            self._persist()
+        return self._webhook
 
 
 class ResultStore:
@@ -187,6 +205,43 @@ class ResultStore:
             page_size=f.page_size,
             pages=(total + f.page_size - 1) // f.page_size if total else 0,
         )
+
+    async def trend(self, hours: int = 24) -> list[dict[str, Any]]:
+        """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。"""
+        async with self._lock:
+            results = list(self._results)
+        now = datetime.now().astimezone()
+        base = now.replace(minute=0, second=0, microsecond=0)
+        cutoff = base - timedelta(hours=hours - 1)
+        buckets: dict[str, dict[str, Any]] = {}
+        for i in range(hours):
+            key = (cutoff + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00")
+            buckets[key] = {
+                "bucket": key,
+                "total": 0,
+                "success": 0,
+                "fail": 0,
+                "timeout": 0,
+                "error": 0,
+                "avg_latency_ms": None,
+            }
+        lat: dict[str, list[float]] = {}
+        for r in results:
+            t = r.checked_at.astimezone()
+            if t < cutoff:
+                continue
+            b = buckets.get(t.strftime("%Y-%m-%dT%H:00"))
+            if b is None:
+                continue
+            b["total"] += 1
+            b[r.status] += 1
+            if r.latency_ms is not None:
+                lat.setdefault(b["bucket"], []).append(r.latency_ms)
+        for key, b in buckets.items():
+            vals = lat.get(key)
+            if vals:
+                b["avg_latency_ms"] = round(sum(vals) / len(vals), 1)
+        return list(buckets.values())
 
     async def latest_per_target(self, target_ids: list[str]) -> dict[str, CheckResult]:
         """返回每个目标最近一条结果（按时间倒序找首个）。"""

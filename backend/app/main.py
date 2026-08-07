@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     result_store = ResultStore(cfg.data_dir / "results.jsonl", cfg.result_max_records)
     secrets_store = SecretsStore(cfg.data_dir)
     security = Security(secrets_store, cfg)
-    notifier = Notifier(cfg.webhook_url, cfg.notify_fail_threshold)
+    notifier = Notifier(config_store)
     scheduler = Scheduler(config_store, result_store, notifier, cfg)
 
     app.state.config_store = config_store

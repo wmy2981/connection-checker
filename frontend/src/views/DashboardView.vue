@@ -24,12 +24,14 @@ import type { DataTableColumns } from 'naive-ui'
 import { api } from '@/api'
 import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
-import type { CheckResult, ResultFilterParams, StatsSummary } from '@/types'
+import TrendChart from '@/components/TrendChart.vue'
+import type { CheckResult, ResultFilterParams, StatsSummary, TrendData } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
 
 const stats = ref<StatsSummary | null>(null)
+const trend = ref<TrendData | null>(null)
 const results = ref<CheckResult[]>([])
 const total = ref(0)
 const pages = ref(0)
@@ -95,6 +97,14 @@ async function fetchStats() {
   }
 }
 
+async function fetchTrend() {
+  try {
+    trend.value = await api.statsTrend(24)
+  } catch {
+    /* 401 由 client 统一跳转 */
+  }
+}
+
 async function fetchResults() {
   loading.value = true
   try {
@@ -122,6 +132,7 @@ async function fetchResults() {
 function refresh() {
   void fetchStats()
   void fetchResults()
+  void fetchTrend()
 }
 
 function applyFilters() {
@@ -328,6 +339,11 @@ const columns: DataTableColumns<CheckResult> = [
               </div>
             </div>
             <n-empty v-else description="还没有检查目标，去「配置管理」添加" />
+          </n-card>
+
+          <n-card title="成功率趋势（近 24 小时）" size="small">
+            <TrendChart v-if="trend && trend.buckets.length" :buckets="trend.buckets" />
+            <n-empty v-else description="暂无数据" />
           </n-card>
 
           <n-card title="检查记录" size="small">

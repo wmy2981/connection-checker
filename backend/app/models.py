@@ -132,3 +132,11 @@ class LoginRequest(BaseModel):
 
 class RunRequest(BaseModel):
     target_id: str | None = None
+
+
+class WebhookConfig(BaseModel):
+    """Webhook 告警配置，存于 config.json（非环境变量）。"""
+
+    enabled: bool = True
+    url: str | None = Field(default=None, max_length=500)
+    fail_threshold: int = Field(default=3, ge=1, le=100)  # 连续失败次数

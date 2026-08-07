@@ -5,6 +5,8 @@ import type {
   StatsSummary,
   Target,
   TargetInput,
+  TrendData,
+  WebhookConfig,
 } from '@/types'
 
 import { request } from './client'
@@ -45,4 +47,8 @@ export const api = {
       body: JSON.stringify(targetId ? { target_id: targetId } : {}),
     }),
   stats: () => request<StatsSummary>('/stats/summary'),
+  statsTrend: (hours = 24) => request<TrendData>(`/stats/trend?hours=${hours}`),
+  getWebhook: () => request<WebhookConfig>('/settings/webhook'),
+  updateWebhook: (cfg: WebhookConfig) =>
+    request<WebhookConfig>('/settings/webhook', { method: 'PUT', body: JSON.stringify(cfg) }),
 }

@@ -6,6 +6,8 @@ import {
   NCard,
   NDataTable,
   NEmpty,
+  NInput,
+  NInputNumber,
   NPopconfirm,
   NSpace,
   NSwitch,
@@ -16,7 +18,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { api } from '@/api'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
-import type { Target, TargetInput } from '@/types'
+import type { Target, TargetInput, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -25,6 +27,10 @@ const targets = ref<Target[]>([])
 const loading = ref(false)
 const modalShow = ref(false)
 const editing = ref<Target | null>(null)
+
+const webhook = ref<WebhookConfig>({ enabled: true, url: null, fail_threshold: 3 })
+const webhookUrl = ref('')
+const webhookSaving = ref(false)
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
@@ -41,7 +47,37 @@ async function load() {
   }
 }
 
-onMounted(load)
+async function loadWebhook() {
+  try {
+    const cfg = await api.getWebhook()
+    webhook.value = cfg
+    webhookUrl.value = cfg.url ?? ''
+  } catch {
+    /* 401 由 client 处理 */
+  }
+}
+
+async function saveWebhook() {
+  webhookSaving.value = true
+  try {
+    const saved = await api.updateWebhook({
+      ...webhook.value,
+      url: webhookUrl.value.trim() || null,
+    })
+    webhook.value = saved
+    webhookUrl.value = saved.url ?? ''
+    message.success('告警配置已保存')
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    webhookSaving.value = false
+  }
+}
+
+onMounted(() => {
+  load()
+  loadWebhook()
+})
 
 function openCreate() {
   editing.value = null
@@ -180,6 +216,28 @@ const columns: DataTableColumns<Target> = [
           />
           <n-empty v-else description="暂无检查目标，点击「新增目标」添加" />
         </n-card>
+
+        <n-card title="告警通知（Webhook）" size="small">
+          <n-space vertical size="large">
+            <n-space align="center" :size="12">
+              <span>启用告警</span>
+              <n-switch v-model:value="webhook.enabled" />
+              <span class="hint">连续失败达到阈值时通过 Webhook 推送，目标恢复时通知</span>
+            </n-space>
+            <n-space vertical :size="8">
+              <span class="label">Webhook 地址（兼容 Gotify / 企业微信 / 自建服务，POST JSON）</span>
+              <n-input v-model:value="webhookUrl" placeholder="https://gotify.example.com/message?token=..." clearable />
+            </n-space>
+            <n-space align="center" :size="12">
+              <span>连续失败阈值</span>
+              <n-input-number v-model:value="webhook.fail_threshold" :min="1" :max="100" style="width: 120px" />
+              <span class="hint">连续失败 N 次触发告警</span>
+            </n-space>
+            <n-space justify="end">
+              <n-button type="primary" :loading="webhookSaving" @click="saveWebhook">保存告警配置</n-button>
+            </n-space>
+          </n-space>
+        </n-card>
       </div>
     </n-layout-content>
   </n-layout>
@@ -214,6 +272,13 @@ const columns: DataTableColumns<Target> = [
 }
 .content {
   padding: 24px 0 48px;
+}
+.hint {
+  color: var(--cc-text-3);
+  font-size: 12px;
+}
+.label {
+  font-size: 13px;
 }
 .container {
   max-width: 1200px;
