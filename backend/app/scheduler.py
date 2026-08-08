@@ -79,9 +79,14 @@ class Scheduler:
 
     async def run_check(self, target: Target) -> CheckResult:
         """对单个目标执行一次检查并落库。"""
+        default_timeout = (
+            self.settings.http_timeout
+            if target.check_method == "http"
+            else self.settings.connect_timeout
+        )
         checker = build_checker(
             target,
-            default_timeout=self.settings.connect_timeout,
+            default_timeout=default_timeout,
             ping_count=self.settings.ping_count,
             success_codes=self.settings.http_success_codes,
         )

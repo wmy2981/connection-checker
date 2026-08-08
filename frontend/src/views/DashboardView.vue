@@ -25,6 +25,7 @@ import { api } from '@/api'
 import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import TrendChart from '@/components/TrendChart.vue'
+import { dateFromTimestamp, formatDateTime } from '@/composables/useAppTime'
 import type { CheckResult, ResultFilterParams, StatsSummary, TrendData } from '@/types'
 
 const router = useRouter()
@@ -80,9 +81,7 @@ const detail = ref<CheckResult | null>(null)
 const showDetail = ref(false)
 
 function formatTime(iso: string): string {
-  const d = new Date(iso)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  return formatDateTime(iso)
 }
 
 function errText(e: unknown): string {
@@ -111,6 +110,7 @@ async function fetchResults() {
     const params: ResultFilterParams = {
       status: filters.status,
       ip: filters.ip,
+      target_name: filters.target_name,
       target_id: filters.target_id,
       date: filters.date ?? undefined,
       time_start: filters.time_start ?? undefined,
@@ -162,9 +162,7 @@ function setDateFilter(value: number | null) {
     filters.date = null
     return
   }
-  const d = new Date(value)
-  const p = (n: number) => String(n).padStart(2, '0')
-  filters.date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  filters.date = dateFromTimestamp(value)
 }
 
 function runAll() {
@@ -364,20 +362,20 @@ const columns: DataTableColumns<CheckResult> = [
               />
               <n-date-picker v-model:value="dateValue" style="width: 150px" @update:value="setDateFilter" />
               <n-time-picker
-                :value="filters.time_start as unknown as number"
+                :formatted-value="filters.time_start"
                 format="HH:mm"
                 value-format="HH:mm"
                 placeholder="开始时间"
                 style="width: 120px"
-                @update:value="(v: unknown) => (filters.time_start = v ? (v as string) : null)"
+                @update:formatted-value="(v: string | null) => (filters.time_start = v || null)"
               />
               <n-time-picker
-                :value="filters.time_end as unknown as number"
+                :formatted-value="filters.time_end"
                 format="HH:mm"
                 value-format="HH:mm"
                 placeholder="结束时间"
                 style="width: 120px"
-                @update:value="(v: unknown) => (filters.time_end = v ? (v as string) : null)"
+                @update:formatted-value="(v: string | null) => (filters.time_end = v || null)"
               />
               <n-button type="primary" secondary @click="applyFilters">查询</n-button>
               <n-button quaternary @click="resetFilters">重置</n-button>

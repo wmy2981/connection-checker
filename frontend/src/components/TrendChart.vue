@@ -67,15 +67,17 @@ const hoverY = ref(0)
 const tooltipLeft = ref(0)
 const tooltipTop = ref(0)
 
+// 桶形如 "2026-08-08T05:00"，是后端按容器时区聚合的本地小时，直接取分量显示，
+// 避免 new Date() 按浏览器时区二次换算。
 function fmtShort(bucket: string): string {
-  const d = new Date(bucket)
-  return `${String(d.getHours()).padStart(2, '0')}:00`
+  return bucket.slice(11, 16)
 }
 
 function fmtTime(bucket: string): string {
-  const d = new Date(bucket)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getMonth() + 1}/${p(d.getDate())} ${p(d.getHours())}:00`
+  const m = Number(bucket.slice(5, 7))
+  const d = bucket.slice(8, 10)
+  const hh = bucket.slice(11, 13)
+  return `${m}/${d} ${hh}:00`
 }
 
 function onMove(ev: MouseEvent) {

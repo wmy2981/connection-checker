@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.models import TimeRange
-from app.timeutil import hhmm_in_range, is_time_in_ranges
+from app.timeutil import get_tz_name, hhmm_in_range, is_time_in_ranges
 
 NIGHT = [TimeRange(start="22:00", end="06:00")]
 DAY = [TimeRange(start="00:00", end="23:59")]
@@ -49,3 +49,25 @@ def test_hhmm_string_variant():
     assert hhmm_in_range("23:00", NIGHT)
     assert not hhmm_in_range("12:00", NIGHT)
     assert hhmm_in_range("10:00", WORK_HOURS)
+
+
+def test_get_tz_name_iana(monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    assert get_tz_name() == "Asia/Shanghai"
+
+
+def test_get_tz_name_abs_path(monkeypatch):
+    monkeypatch.setenv("TZ", "/usr/share/zoneinfo/America/New_York")
+    assert get_tz_name() == "America/New_York"
+
+
+def test_get_tz_name_colon_prefix(monkeypatch):
+    monkeypatch.setenv("TZ", ":Asia/Tokyo")
+    assert get_tz_name() == "Asia/Tokyo"
+
+
+def test_get_tz_name_without_tz_falls_back_to_offset(monkeypatch):
+    monkeypatch.delenv("TZ", raising=False)
+    name = get_tz_name()
+    # 无 TZ 时按本地偏移返回固定偏移名或 UTC
+    assert name == "UTC" or name.startswith("Etc/GMT")

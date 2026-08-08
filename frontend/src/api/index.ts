@@ -31,6 +31,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
     }),
   me: () => request<{ authenticated: boolean }>('/auth/me'),
+  meta: () => request<{ tz: string }>('/meta'),
 
   listTargets: () => request<Target[]>('/targets'),
   createTarget: (input: TargetInput) =>

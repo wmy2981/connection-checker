@@ -1,4 +1,5 @@
 """HTTP(S) 状态码检查，基于 httpx。"""
+import asyncio
 import time
 
 import httpx
@@ -25,16 +26,14 @@ class HttpChecker(BaseChecker):
 
         started = time.monotonic()
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout, follow_redirects=True
-            ) as client:
-                resp = await client.get(url)
-        except httpx.TimeoutException:
+            # httpx 的 float timeout 是分阶段空闲超时（connect/read 各自计时），
+            # 对慢速流式响应的服务器总耗时可能远超设定值。用 wait_for 施加总超时上限。
+            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+                resp = await asyncio.wait_for(client.get(url), timeout=self.timeout)
+        except (asyncio.TimeoutError, TimeoutError):  # noqa: UP024
             return CheckOutcome("timeout", f"请求 {url} 超时")
         except httpx.ConnectError:
             return CheckOutcome("fail", f"无法连接 {url}")
-        except httpx.ConnectTimeout:
-            return CheckOutcome("timeout", f"连接 {url} 超时")
         except Exception as e:  # noqa: BLE001
             return CheckOutcome("error", f"HTTP 检查出错: {e}")
 

@@ -136,7 +136,7 @@ async function runOne(t: Target) {
 
 function methodText(t: Target): string {
   if (t.check_method === 'port') return `端口 :${t.port}`
-  if (t.check_method === 'http') return `HTTP (${t.scheme})`
+  if (t.check_method === 'http') return t.port ? `HTTP (${t.scheme}:${t.port})` : `HTTP (${t.scheme})`
   return 'Ping'
 }
 

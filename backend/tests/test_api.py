@@ -14,6 +14,14 @@ def test_me_unauthenticated(client: TestClient):
     assert client.get("/api/v1/auth/me").json()["authenticated"] is False
 
 
+def test_meta_public(client: TestClient):
+    """meta 端点无需登录，返回容器时区名称。"""
+    resp = client.get("/api/v1/meta")
+    assert resp.status_code == 200
+    tz = resp.json()["tz"]
+    assert tz and "/" in tz or tz in ("UTC",)
+
+
 def test_login_ok_and_me(client: TestClient):
     resp = client.post("/api/v1/auth/login", json={"access_code": "test-access-code"})
     assert resp.status_code == 200

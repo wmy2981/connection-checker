@@ -1,6 +1,7 @@
 import asyncio
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -129,3 +130,39 @@ async def test_http_connection_refused():
         port = s.getsockname()[1]
     outcome = await HttpChecker(0.5).check(_target("http", port=port, url_path="/"))
     assert outcome.status != "success"
+
+
+class _SlowHandler(BaseHTTPRequestHandler):
+    """响应头立即发送，body 每 0.4s 发一块。httpx 的分阶段空闲超时无法兜住总耗时。"""
+
+    def do_GET(self):
+        try:
+            self.send_response(200)
+            self.send_header("Content-Length", "30")
+            self.end_headers()
+            for _ in range(3):
+                time.sleep(0.4)
+                self.wfile.write(b"x" * 10)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # 客户端超时断开属预期
+
+    def log_message(self, *a):  # noqa: ANN002
+        pass
+
+
+async def test_http_timeout_is_total():
+    """自定义超时应作为总耗时上限，而非分阶段空闲超时。"""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _SlowHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    try:
+        started = time.monotonic()
+        outcome = await HttpChecker(0.5).check(
+            _target("http", port=server.server_address[1], url_path="/")
+        )
+        elapsed = time.monotonic() - started
+        assert outcome.status == "timeout"
+        assert elapsed < 1.0, f"总耗时 {elapsed:.2f}s 超过了超时上限 0.5s"
+    finally:
+        server.shutdown()

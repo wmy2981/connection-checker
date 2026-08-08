@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { NConfigProvider, NDialogProvider, NMessageProvider, dateZhCN, zhCN, darkTheme } from 'naive-ui'
 import type { GlobalTheme } from 'naive-ui'
 
 import { isDark } from '@/composables/useDark'
+import { loadAppTz } from '@/composables/useAppTime'
 
 const theme = computed<GlobalTheme | null>(() => (isDark.value ? darkTheme : null))
+
+onMounted(() => {
+  void loadAppTz()
+})
 </script>
 
 <template>

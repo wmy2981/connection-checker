@@ -32,7 +32,7 @@ const form = reactive({
   check_method: 'ping' as CheckMethod,
   check_interval: 60,
   enabled: true,
-  port: 80,
+  port: null as number | null,
   scheme: 'http' as 'http' | 'https',
   url_path: '/',
   timeout: null as number | null,
@@ -59,7 +59,7 @@ watch(
     form.check_method = t?.check_method ?? 'ping'
     form.check_interval = t?.check_interval ?? 60
     form.enabled = t?.enabled ?? true
-    form.port = t?.port ?? 80
+    form.port = t?.port ?? null
     form.scheme = t?.scheme ?? 'http'
     form.url_path = t?.url_path ?? '/'
     form.timeout = t?.timeout ?? null
@@ -96,7 +96,7 @@ function submit() {
     check_interval: form.check_interval,
     enabled: form.enabled,
     time_ranges: form.time_ranges.length ? form.time_ranges : [{ start: '00:00', end: '23:59' }],
-    port: form.check_method === 'port' ? form.port : null,
+    port: form.check_method === 'ping' ? null : form.port,
     scheme: form.scheme,
     url_path: form.check_method === 'http' ? form.url_path : '/',
     timeout: form.timeout,
@@ -140,6 +140,16 @@ function submit() {
           <n-form-item label="协议">
             <n-select v-model:value="form.scheme" :options="schemeOptions" />
           </n-form-item>
+          <n-form-item label="端口">
+            <n-input-number
+              v-model:value="form.port"
+              :min="1"
+              :max="65535"
+              :show-button="false"
+              style="width: 100%"
+              placeholder="留空用协议默认（80/443）"
+            />
+          </n-form-item>
           <n-form-item label="路径">
             <n-input v-model:value="form.url_path" placeholder="/" />
           </n-form-item>
@@ -163,19 +173,19 @@ function submit() {
               class="range-row"
             >
               <n-time-picker
-                :value="range.start as unknown as number"
+                :formatted-value="range.start"
                 format="HH:mm"
                 value-format="HH:mm"
                 placeholder="开始"
-                @update:value="(v: unknown) => (range.start = (v ?? '') as string)"
+                @update:formatted-value="(v: string | null) => (range.start = v ?? '')"
               />
               <span class="sep">—</span>
               <n-time-picker
-                :value="range.end as unknown as number"
+                :formatted-value="range.end"
                 format="HH:mm"
                 value-format="HH:mm"
                 placeholder="结束"
-                @update:value="(v: unknown) => (range.end = (v ?? '') as string)"
+                @update:formatted-value="(v: string | null) => (range.end = v ?? '')"
               />
               <n-button size="small" quaternary type="error" :disabled="form.time_ranges.length <= 1" @click="removeRange(idx)">
                 删除
