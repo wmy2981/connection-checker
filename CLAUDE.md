@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-自托管网络连通性监控工具（Ping / TCP / HTTP 检查 + Web 仪表盘 + Webhook 告警）。FastAPI 后端 + Vue3 前端，单 Docker 镜像（ghcr）部署，数据用 JSON/JSONL 文件存储，无数据库。
+自托管网络连通性监控工具（Ping / TCP / HTTP / DNS 检查 + Web 仪表盘 + Webhook 告警）。FastAPI 后端 + Vue3 前端，单 Docker 镜像（ghcr）部署，数据用 JSON/JSONL 文件存储，无数据库。
 
 ## 常用命令
 
@@ -22,11 +22,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 版本发布由 CI 全自动驱动（python-semantic-release），以下机制改动需格外谨慎：
 
-- `pyproject.toml` 的 `[tool.semantic_release]` 配置
-- `.github/workflows/ci.yml` 的 release job，以及 `[skip ci]` 防循环机制（发版 commit 回推 main 时避免重新触发 CI）
+- `pyproject.toml` 的 `[tool.semantic_release]` 配置与 `[tool.semantic_release.changelog] template_dir`
+- 三个拆分的工作流：`.github/workflows/ci.yml`（test）、`build.yml`（镜像构建，main→latest、dev→dev）、`release.yml`（发版），以及 `[skip ci]` 防循环机制（发版 commit 回推 main 时避免重新触发 CI）
+- `release-templates/` 自定义发行说明模板（PSR v10 运行时模板 `data/templates/conventional/md/` 的副本，删掉了许可说明行与 Detailed Changes 行；改动模板后建议本地用 jinja2 验证）
 - `backend/app/main.py` 的 `_mount_frontend` SPA 静态托管逻辑
-- `backend/app/config.py` 中 `CONNECTCHECKER_` 环境变量语义
-- `/api/v1/auth/me` 端点（Docker HEALTHCHECK 依赖它）
+- `backend/app/config.py` 中 `CONNECTCHECKER_` 环境变量语义：`ACCESS_CODE`（留空=免登录）、`JWT_*`、`APP_PORT`、`DATA_DIR`、`COOKIE_SECURE`、`HTTP_SUCCESS_CODES`；检查参数（`RESULT_MAX_RECORDS`/`PING_COUNT`/`CONNECT_TIMEOUT`/`HTTP_TIMEOUT`）已在 config.json 的 `app` 节
+- `/api/v1/auth/me` 端点（Docker HEALTHCHECK 依赖它；免认证模式恒返回 authenticated=true）
 
 ## 提交流程
 
@@ -38,5 +39,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 代码须保持 Python 3.10 兼容：本地 venv 是 3.10，而 CI/Docker 用 3.12
 - Windows 下 venv 在 `.venv/Scripts/python`（非 `.venv/bin`）
 - POST/PUT/PATCH 强制要求 `Content-Type: application/json`（CSRF 纵深防御，否则返回 415）
-- `config.json` 每 5 秒热加载（外部编辑立即生效）；`results.jsonl` 追加写、超上限时整文件重写
+- `config.json` 每 5 秒热加载（外部编辑立即生效）：检查目标、`webhook` 告警、`app` 全局检查参数（结果保留条数/Ping 发包数/超时，结果上限修改立即裁剪）；`results.jsonl` 追加写、超上限时整文件重写
+- 访问码以 `CONNECTCHECKER_ACCESS_CODE` 为权威且每次运行重新校验；**留空则免认证**（内网部署可用，勿暴露公网）
 - 容器运行需 `--cap-add=NET_RAW`（ping 依赖原始套接字）

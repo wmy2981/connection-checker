@@ -49,7 +49,7 @@
 ├── Dockerfile            # 多阶段构建（node 构建 → python 运行）
 ├── docker-compose.yml    # 示例部署
 ├── pyproject.toml        # Python 依赖 / 工具链 / 发行配置
-└── CHANGELOG.md          # 版本变更记录（主要里程碑人工维护）
+└── release-templates/    # 自定义 GitHub Release 说明模板
 ```
 
 ## 快速开始（Docker）
@@ -64,7 +64,7 @@ docker run -d --name connection-checker \
 
 打开 `http://localhost:8000`，用访问码登录。
 
-> 未设置 `CONNECTCHECKER_ACCESS_CODE` 时，首次启动会生成随机访问码并打印到容器日志中。
+> 访问码以 `CONNECTCHECKER_ACCESS_CODE` 环境变量为权威，每次运行以此为准（修改后重启即生效）。**留空则不启用认证**，打开面板直接进入，无需登录——请仅在可信内网使用。
 
 ### docker-compose
 
@@ -119,7 +119,7 @@ cd frontend && npm run build
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `CONNECTCHECKER_ACCESS_CODE` | 随机生成 | 登录访问码 |
+| `CONNECTCHECKER_ACCESS_CODE` | 留空 = 免登录 | 登录访问码；以环境变量为权威，留空则禁用认证 |
 | `CONNECTCHECKER_JWT_SECRET` | 随机生成 | JWT 签名密钥；不设置则持久化在 `secrets.json` |
 | `CONNECTCHECKER_JWT_EXPIRE_MINUTES` | `720` | 会话有效期（分钟） |
 | `CONNECTCHECKER_APP_PORT` | `8000` | 服务端口 |
@@ -177,13 +177,15 @@ Gotify 可直接使用；企业微信等可在入口处做格式转换。
 
 ## CI/CD 与发行
 
-GitHub Actions 在每次 `main` 推送时执行：
+GitHub Actions 由三个工作流组成（`.github/workflows/`）：
 
-1. ruff 代码检查 + pytest 测试
-2. buildx 构建 amd64 / arm64 镜像，推送至 `ghcr.io/wmy2981/connection-checker`（`latest` + `sha`）
-3. python-semantic-release 依据 Conventional Commits 自动生成 **GitHub Release 说明**、打 `vX.Y.Z` tag 并发布 Release
+| 工作流 | 触发 | 内容 |
+| --- | --- | --- |
+| `ci.yml` | main / dev 推送或 PR | ruff + pytest + 前端构建 |
+| `build.yml` | main / dev 推送 | buildx 构建 amd64 / arm64 镜像推至 GHCR（main → `latest` + `sha`，dev → `dev` + `sha`） |
+| `release.yml` | main 推送 | python-semantic-release 依据 Conventional Commits 打 `vX.Y.Z` tag 并发布 **GitHub Release** |
 
-> GitHub Release 说明由 commit 历史自动生成；仓库内 `CHANGELOG.md` 为人工维护的版本变更记录，主要里程碑由维护者整理。
+> Release 说明由 commit 历史经 `release-templates/` 自定义模板生成（不含版本号下的许可说明行与 Detailed Changes 对比链接行），不带任何发行附件。
 
 版本号以 `pyproject.toml` 为基准、以 git tag 为准。
 

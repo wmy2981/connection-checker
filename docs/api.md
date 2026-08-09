@@ -2,6 +2,8 @@
 
 基础路径：`/api/v1`。所有响应为 JSON（SSE 流除外）。除登录与 `/auth/me` 外，均需登录会话（HttpOnly Cookie）。
 
+> 未设置 `CONNECTCHECKER_ACCESS_CODE` 时为**免认证模式**：所有接口直接放行，`/auth/me` 恒返回 `{"authenticated": true}`，无需登录。
+
 > 交互式文档：部署后访问 `/docs`（Swagger UI）或 `/redoc`。
 
 ## 通用约定
@@ -20,7 +22,7 @@
 { "access_code": "你的访问码" }
 ```
 
-成功：`200`，设置 `session` Cookie，`{"ok": true}`。访问码错误：`401`。
+成功：`200`，设置 `session` Cookie，`{"ok": true}`。访问码错误：`401`。免认证模式下任意访问码均成功。
 
 ### POST /auth/logout
 
