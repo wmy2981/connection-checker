@@ -8,6 +8,23 @@ from app.checkers.base import BaseChecker, CheckOutcome
 from app.models import Target
 
 
+def _jitter_ms(samples: list[float]) -> float:
+    """延迟抖动：连续样本差绝对值的平均，样本不足 2 个时为 0。"""
+    if len(samples) < 2:
+        return 0.0
+    diffs = [abs(samples[i] - samples[i - 1]) for i in range(1, len(samples))]
+    return round(sum(diffs) / len(diffs), 1)
+
+
+def _stddev_ms(samples: list[float]) -> float:
+    """样本标准差，样本不足 2 个时为 0。"""
+    if len(samples) < 2:
+        return 0.0
+    avg = sum(samples) / len(samples)
+    variance = sum((s - avg) ** 2 for s in samples) / len(samples)
+    return round(variance**0.5, 1)
+
+
 class PingChecker(BaseChecker):
     """逐次调用 ping3.ping，统计延迟与丢包率。count 取自 settings。"""
 
@@ -50,6 +67,11 @@ class PingChecker(BaseChecker):
             "packet_loss_pct": round(loss_pct, 1),
             "min_ms": round(min(samples), 1),
             "max_ms": round(max(samples), 1),
+            "jitter_ms": _jitter_ms(samples),
+            "stddev_ms": _stddev_ms(samples),
+            "sent": sent,
+            "received": received,
+            "samples_ms": [round(s, 1) for s in samples],
         }
         if loss_pct > 50:
             return CheckOutcome(

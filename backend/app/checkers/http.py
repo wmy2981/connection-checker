@@ -1,6 +1,8 @@
 """HTTP(S) 状态码检查，基于 httpx。"""
 import asyncio
 import time
+from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 
@@ -10,6 +12,45 @@ from app.models import Target
 
 def _default_port(scheme: str) -> int:
     return 443 if scheme == "https" else 80
+
+
+def _issuer_name(cert: dict) -> str | None:
+    """从 getpeercert() 的 issuer 嵌套元组里提取常用名称。"""
+    for pairs in cert.get("issuer", ()):
+        for key, value in pairs:
+            if key in ("organizationName", "commonName"):
+                return value
+    return None
+
+
+def _tls_info(ssl_object: Any) -> dict[str, Any]:
+    """提取 TLS 版本、加密套件与证书信息；任何一项取不到都静默跳过。"""
+    info: dict[str, Any] = {}
+    try:
+        version = ssl_object.version()
+        if version:
+            info["version"] = version
+        cipher = ssl_object.cipher()
+        if cipher:
+            info["cipher"] = cipher[0]
+        cert = ssl_object.getpeercert()
+        if cert:
+            issuer = _issuer_name(cert)
+            if issuer:
+                info["issuer"] = issuer
+            not_after = cert.get("notAfter")
+            if not_after:
+                try:
+                    expiry = datetime.strptime(
+                        not_after, "%b %d %H:%M:%S %Y GMT"
+                    ).replace(tzinfo=timezone.utc)
+                    info["not_after"] = expiry.isoformat()
+                    info["days_remaining"] = (expiry - datetime.now(timezone.utc)).days
+                except ValueError:
+                    pass
+    except (ValueError, OSError):
+        pass
+    return info
 
 
 class HttpChecker(BaseChecker):
@@ -25,11 +66,23 @@ class HttpChecker(BaseChecker):
             codes = list(range(200, 400))
 
         started = time.monotonic()
+
+        async def _fetch() -> tuple[httpx.Response, bytes, float, float]:
+            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+                req = client.build_request("GET", url)
+                resp = await client.send(req, stream=True)
+                t_headers = time.monotonic()
+                body = await resp.aread()
+                t_body = time.monotonic()
+                await resp.aclose()
+                return resp, body, t_headers, t_body
+
         try:
             # httpx 的 float timeout 是分阶段空闲超时（connect/read 各自计时），
             # 对慢速流式响应的服务器总耗时可能远超设定值。用 wait_for 施加总超时上限。
-            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
-                resp = await asyncio.wait_for(client.get(url), timeout=self.timeout)
+            resp, body, t_headers, t_body = await asyncio.wait_for(
+                _fetch(), timeout=self.timeout
+            )
         except (asyncio.TimeoutError, TimeoutError):  # noqa: UP024
             return CheckOutcome("timeout", f"请求 {url} 超时")
         except httpx.ConnectError:
@@ -38,7 +91,34 @@ class HttpChecker(BaseChecker):
             return CheckOutcome("error", f"HTTP 检查出错: {e}")
 
         elapsed = (time.monotonic() - started) * 1000
-        extra = {"url": url, "http_status": resp.status_code}
+        extra: dict[str, Any] = {
+            "url": url,
+            "final_url": str(resp.url),
+            "http_status": resp.status_code,
+            "http_version": resp.http_version,
+            "redirects": len(resp.history),
+            # ttfb 含连接建立与重定向；总耗时与 latency_ms 一致
+            "ttfb_ms": round((t_headers - started) * 1000, 1),
+            "body_read_ms": round((t_body - t_headers) * 1000, 1),
+            "total_ms": round((t_body - started) * 1000, 1),
+            "content_type": resp.headers.get("content-type"),
+            "response_size": len(body),
+        }
+        raw_length = resp.headers.get("content-length")
+        if raw_length is not None:
+            try:
+                extra["content_length"] = int(raw_length)
+            except ValueError:
+                pass
+        # HTTPS 时补充 TLS 证书信息（可提前发现即将过期）
+        stream = resp.extensions.get("network_stream")
+        if stream is not None:
+            ssl_object = stream.get_extra_info("ssl_object")
+            if ssl_object is not None:
+                tls = _tls_info(ssl_object)
+                if tls:
+                    extra["tls"] = tls
+
         if resp.status_code in codes:
             return CheckOutcome(
                 "success",

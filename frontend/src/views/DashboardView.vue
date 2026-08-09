@@ -331,6 +331,7 @@ const columns: DataTableColumns<CheckResult> = [
                 </n-tag>
                 <span v-if="t.last_latency_ms != null" class="lat">{{ t.last_latency_ms }}ms</span>
                 <span v-if="!t.enabled" class="off">已停用</span>
+                <span v-else-if="t.check_interval === 0" class="off">仅手动</span>
                 <n-button size="tiny" type="primary" secondary @click.stop="runOne(t.target_id)">
                   检查
                 </n-button>
@@ -352,6 +353,7 @@ const columns: DataTableColumns<CheckResult> = [
                 placeholder="IP 筛选（如 192.168.*）"
                 clearable
                 style="width: 170px"
+                @keyup.enter="applyFilters"
               />
               <n-select
                 v-model:value="filters.target_name"

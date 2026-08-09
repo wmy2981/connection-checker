@@ -36,7 +36,7 @@ class TargetBase(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     ip: str = Field(min_length=1, max_length=255)
     check_method: CheckMethod
-    check_interval: int = Field(default=60, ge=5)  # 秒
+    check_interval: int = Field(default=60, ge=0)  # 秒；0 = 关闭定时检查（仅手动）
     time_ranges: list[TimeRange] = Field(
         default_factory=lambda: [TimeRange(start="00:00", end="23:59")]
     )
@@ -64,7 +64,7 @@ class TargetUpdate(BaseModel):
     name: str | None = None
     ip: str | None = Field(default=None, min_length=1, max_length=255)
     check_method: CheckMethod | None = None
-    check_interval: int | None = Field(default=None, ge=5)
+    check_interval: int | None = Field(default=None, ge=0)
     time_ranges: list[TimeRange] | None = None
     enabled: bool | None = None
     port: int | None = Field(default=None, ge=1, le=65535)

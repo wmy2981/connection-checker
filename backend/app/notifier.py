@@ -36,6 +36,25 @@ class Notifier:
             self._alerted.add(tid)
             await self._send("告警", f"连续 {n} 次检查失败", result, cfg.url)
 
+    async def send_test(self, url: str) -> tuple[bool, str]:
+        """向 Webhook 发送一条测试消息，返回 (是否成功, 详情)。"""
+        payload = {
+            "title": "[测试] 连接检查工具",
+            "message": "这是一条测试推送，用于验证 Webhook 配置是否可用。",
+            "event": "connection_checker_test",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+            return True, f"HTTP {resp.status_code}"
+        except httpx.HTTPStatusError as e:
+            detail = (e.response.text or "")[:200]
+            return False, f"HTTP {e.response.status_code}: {detail}"
+        except Exception as e:  # noqa: BLE001
+            return False, str(e) or e.__class__.__name__
+
     async def _send(self, kind: str, summary: str, result: CheckResult, url: str) -> None:
         payload = {
             "title": f"[{kind}] {result.target_name or result.ip}",

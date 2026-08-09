@@ -141,7 +141,7 @@ cd frontend && npm run build
 | `name` | 可选名称，便于识别 |
 | `ip` | IP 或主机名 |
 | `check_method` | `ping` / `port` / `http` |
-| `check_interval` | 检查间隔（秒，≥5） |
+| `check_interval` | 检查间隔（秒；`0` = 关闭定时检查，仅手动触发） |
 | `time_ranges` | 时间段数组，支持跨午夜；留空则全天 |
 | `enabled` | 是否启用 |
 | `port` | `port` 方式必填；`http` 方式可覆盖默认端口 |
@@ -151,7 +151,7 @@ cd frontend && npm run build
 
 ## Webhook 告警
 
-在「配置管理」→「告警通知（Webhook）」中设置推送地址、启用开关与连续失败阈值，配置保存在 `config.json`（非环境变量）。目标连续失败达到阈值时 POST 如下 JSON；恢复时再推送一次：
+在「配置管理」→「告警通知（Webhook）」中设置推送地址、启用开关与连续失败阈值，配置保存在 `config.json`（非环境变量）。可用「测试推送」按钮向地址发送一条测试消息验证链路（未保存的地址同样可测）。目标连续失败达到阈值时 POST 如下 JSON；恢复时再推送一次：
 
 ```json
 {

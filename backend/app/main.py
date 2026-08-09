@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
     app.state.result_store = result_store
     app.state.secrets_store = secrets_store
     app.state.security = security
+    app.state.notifier = notifier
     app.state.scheduler = scheduler
     if security.generated_access_code:
         logger.warning(

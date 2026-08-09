@@ -28,6 +28,26 @@ async def test_ping_success(monkeypatch):
     assert outcome.status == "success"
     assert outcome.latency_ms == pytest.approx(12.0, abs=1)
     assert outcome.extra["packet_loss_pct"] == 0
+    assert outcome.extra["sent"] == 3
+    assert outcome.extra["received"] == 3
+    assert outcome.extra["samples_ms"] == [12.0, 12.0, 12.0]
+    assert outcome.extra["jitter_ms"] == 0
+    assert outcome.extra["stddev_ms"] == 0
+
+
+async def test_ping_extra_jitter_stddev(monkeypatch):
+    samples = iter([0.01, 0.03, 0.01, 0.05])
+
+    def fake_ping(*a, **k):
+        return next(samples)
+
+    monkeypatch.setattr("ping3.ping", fake_ping)
+    outcome = await PingChecker(timeout=1.0, count=4).check(_target("ping"))
+    assert outcome.status == "success"
+    assert outcome.extra["min_ms"] == 10.0
+    assert outcome.extra["max_ms"] == 50.0
+    assert outcome.extra["jitter_ms"] == 26.7  # (|10-30|+|30-10|+|10-50|)/3
+    assert outcome.extra["stddev_ms"] > 0
 
 
 async def test_ping_all_timeout(monkeypatch):
@@ -108,6 +128,14 @@ async def test_http_success():
         outcome = await HttpChecker(1.0).check(_target("http", port=port, url_path="/"))
         assert outcome.status == "success"
         assert outcome.extra["http_status"] == 200
+        assert outcome.extra["http_version"]  # "HTTP/1.0" 或 "HTTP/1.1"
+        assert outcome.extra["redirects"] == 0
+        assert outcome.extra["final_url"].endswith(f":{port}/")
+        assert outcome.extra["ttfb_ms"] > 0
+        assert outcome.extra["body_read_ms"] >= 0
+        assert outcome.extra["total_ms"] == pytest.approx(outcome.latency_ms, abs=1)
+        assert outcome.extra["response_size"] == 2  # body "ok"
+        assert "tls" not in outcome.extra
     finally:
         server.shutdown()
 

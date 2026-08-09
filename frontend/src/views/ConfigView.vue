@@ -31,6 +31,7 @@ const editing = ref<Target | null>(null)
 const webhook = ref<WebhookConfig>({ enabled: true, url: null, fail_threshold: 3 })
 const webhookUrl = ref('')
 const webhookSaving = ref(false)
+const webhookTesting = ref(false)
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
@@ -54,6 +55,19 @@ async function loadWebhook() {
     webhookUrl.value = cfg.url ?? ''
   } catch {
     /* 401 由 client 处理 */
+  }
+}
+
+async function testWebhook() {
+  const url = webhookUrl.value.trim()
+  webhookTesting.value = true
+  try {
+    const r = await api.testWebhook(url)
+    message.success(`推送成功（${r.info}）`)
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    webhookTesting.value = false
   }
 }
 
@@ -144,7 +158,12 @@ const columns: DataTableColumns<Target> = [
   { title: '名称', key: 'name', render: (t) => t.name || '-' },
   { title: 'IP / 主机名', key: 'ip', minWidth: 140 },
   { title: '方式', key: 'check_method', render: (t) => methodText(t) },
-  { title: '间隔', key: 'check_interval', width: 80, render: (t) => `${t.check_interval}s` },
+  {
+    title: '间隔',
+    key: 'check_interval',
+    width: 80,
+    render: (t) => (t.check_interval === 0 ? '关闭' : `${t.check_interval}s`),
+  },
   {
     title: '时间窗口',
     key: 'time_ranges',
@@ -234,6 +253,7 @@ const columns: DataTableColumns<Target> = [
               <span class="hint">连续失败 N 次触发告警</span>
             </n-space>
             <n-space justify="end">
+              <n-button :loading="webhookTesting" @click="testWebhook">测试推送</n-button>
               <n-button type="primary" :loading="webhookSaving" @click="saveWebhook">保存告警配置</n-button>
             </n-space>
           </n-space>

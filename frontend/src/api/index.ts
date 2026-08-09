@@ -52,4 +52,9 @@ export const api = {
   getWebhook: () => request<WebhookConfig>('/settings/webhook'),
   updateWebhook: (cfg: WebhookConfig) =>
     request<WebhookConfig>('/settings/webhook', { method: 'PUT', body: JSON.stringify(cfg) }),
+  testWebhook: (url: string) =>
+    request<{ ok: boolean; info: string }>('/settings/webhook/test', {
+      method: 'POST',
+      body: JSON.stringify(url ? { url } : {}),
+    }),
 }

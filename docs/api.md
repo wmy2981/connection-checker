@@ -70,7 +70,7 @@
 | `ip` | string | 是 | IP 或主机名 |
 | `check_method` | string | 是 | `ping` / `port` / `http` |
 | `name` | string | 否 | 名称 |
-| `check_interval` | int | 否 | 秒，默认 60，最小 5 |
+| `check_interval` | int | 否 | 秒，默认 60；`0` = 关闭定时检查（仅手动触发） |
 | `time_ranges` | array | 否 | `[{start, end}]`，默认全天，支持跨午夜 |
 | `enabled` | bool | 否 | 默认 true |
 | `port` | int | 条件 | `port` 方式必填；`http` 方式可覆盖默认端口 |
@@ -123,7 +123,16 @@
       "status": "success",
       "latency_ms": 12.3,
       "message": "平均延迟 12ms，丢包率 0%",
-      "extra": { "packet_loss_pct": 0.0, "min_ms": 11.0, "max_ms": 14.0 },
+      "extra": {
+        "packet_loss_pct": 0.0,
+        "min_ms": 11.0,
+        "max_ms": 14.0,
+        "jitter_ms": 1.2,
+        "stddev_ms": 0.8,
+        "sent": 4,
+        "received": 4,
+        "samples_ms": [11.0, 12.5, 13.1, 14.0]
+      },
       "checked_at": "2026-08-06T08:00:00+00:00"
     }
   ],
@@ -152,6 +161,30 @@
 ```
 
 响应：新产生的检查结果数组（与 `/results` 单条结构相同）。指定目标不存在：`404`。
+
+## 告警设置
+
+### GET /settings/webhook
+
+返回 Webhook 告警配置（存于 `config.json`）。
+
+```json
+{ "enabled": true, "url": "https://gotify.example.com/message?token=...", "fail_threshold": 3 }
+```
+
+### PUT /settings/webhook
+
+更新配置，请求体同上。成功：`200`，返回更新后的配置。
+
+### POST /settings/webhook/test
+
+向 Webhook 地址推送一条测试消息，验证地址可用。请求体可选：
+
+```json
+{ "url": "https://gotify.example.com/message?token=..." }   // 不传则用已保存的配置
+```
+
+成功：`200`，`{ "ok": true, "info": "HTTP 200" }`。地址未填写：`400`；推送失败（连接失败 / 非 2xx）：`502`。
 
 ## 统计概览
 

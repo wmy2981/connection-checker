@@ -1,5 +1,11 @@
 from fastapi.testclient import TestClient
 
+from app.config import Settings
+from app.models import Target
+from app.notifier import Notifier
+from app.scheduler import Scheduler
+from app.storage import ConfigStore, ResultStore
+
 
 def _payload(name: str = "测试", method: str = "ping", ip: str = "8.8.8.8") -> dict:
     return {"name": name, "ip": ip, "check_method": method, "check_interval": 60}
@@ -149,6 +155,77 @@ def test_webhook_settings_validation(logged_client: TestClient):
         "/api/v1/settings/webhook", json={"enabled": True, "url": "x", "fail_threshold": 0}
     )
     assert resp.status_code == 422
+
+
+def test_target_interval_zero_allowed(logged_client: TestClient, fake_checker):
+    """check_interval=0 表示关闭定时检查，应允许创建。"""
+    fake_checker(status="success", message="ok")
+    payload = _payload()
+    payload["check_interval"] = 0
+    created = logged_client.post("/api/v1/targets", json=payload)
+    assert created.status_code == 201
+    assert created.json()["check_interval"] == 0
+    # 手动检查仍可用
+    run = logged_client.post("/api/v1/checks/run", json={})
+    assert run.status_code == 200
+    assert run.json()[0]["status"] == "success"
+
+
+def test_webhook_test_push_no_url(logged_client: TestClient):
+    resp = logged_client.post("/api/v1/settings/webhook/test", json={})
+    assert resp.status_code == 400
+
+
+def test_webhook_test_push_ok(logged_client: TestClient, monkeypatch):
+    async def fake_send_test(url):
+        assert url == "http://example.invalid/hook"
+        return True, "HTTP 200"
+
+    monkeypatch.setattr(logged_client.app.state.notifier, "send_test", fake_send_test)
+    resp = logged_client.post(
+        "/api/v1/settings/webhook/test", json={"url": "http://example.invalid/hook"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_webhook_test_push_failure(logged_client: TestClient, monkeypatch):
+    async def fake_send_test(url):
+        return False, "连接被拒绝"
+
+    monkeypatch.setattr(logged_client.app.state.notifier, "send_test", fake_send_test)
+    resp = logged_client.post("/api/v1/settings/webhook/test", json={"url": "http://x"})
+    assert resp.status_code == 502
+    assert "连接被拒绝" in resp.json()["detail"]
+
+
+async def test_reconcile_skips_manual_only_target(tmp_path):
+    """check_interval=0 或未启用的目标都不应创建定时任务。"""
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        access_code="test-access-code",
+        jwt_secret="x" * 40,
+    )
+    store = ConfigStore(settings.data_dir)
+    result_store = ResultStore(settings.data_dir / "results.jsonl", 50)
+    scheduler = Scheduler(store, result_store, Notifier(store), settings)
+    await store.upsert_target(
+        Target(id="t0", ip="127.0.0.1", check_method="port", check_interval=0, port=80)
+    )
+    await store.upsert_target(
+        Target(
+            id="t1",
+            ip="127.0.0.1",
+            check_method="port",
+            check_interval=60,
+            port=80,
+            enabled=False,
+        )
+    )
+    await scheduler.reconcile()
+    assert scheduler._tasks == {}
+    await scheduler.stop()
 
 
 def test_stats_trend(logged_client: TestClient, fake_checker, no_scheduler):

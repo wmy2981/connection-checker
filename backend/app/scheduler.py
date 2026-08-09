@@ -45,12 +45,13 @@ class Scheduler:
     async def reconcile(self) -> None:
         """按当前配置创建/停止目标任务。"""
         targets = await self.config_store.list_targets()
-        enabled_ids = {t.id for t in targets if t.enabled}
+        # check_interval=0 表示仅手动检查，不创建定时任务
+        enabled_ids = {t.id for t in targets if t.enabled and t.check_interval > 0}
         for tid in list(self._tasks):
             if tid not in enabled_ids:
                 self._stop_task(tid)
         for t in targets:
-            if t.enabled and t.id not in self._tasks:
+            if t.enabled and t.check_interval > 0 and t.id not in self._tasks:
                 self._tasks[t.id] = asyncio.create_task(
                     self._run_loop(t.id), name=f"check:{t.id}"
                 )
