@@ -80,6 +80,29 @@ async def test_notifier_target_notify_disabled(tmp_path, monkeypatch):
     assert sent == []
 
 
+async def test_notifier_global_off_overrides_target_on(tmp_path, monkeypatch):
+    """全局告警禁用时，即使目标开启了 notify_enabled 也不推送。"""
+    store = ConfigStore(tmp_path / "data")
+    await store.update_webhook_config(
+        WebhookConfig(enabled=False, url="http://example.invalid", fail_threshold=2)
+    )
+    notifier = Notifier(store)
+    sent: list[tuple[str, str]] = []
+
+    async def _send(kind, summary, result, url):
+        sent.append((kind, summary))
+
+    monkeypatch.setattr(notifier, "_send", _send)
+
+    await store.upsert_target(
+        Target(id="t1", ip="8.8.8.8", check_method="ping", notify_enabled=True)
+    )
+    await notifier.observe(_result("t1", "fail"))
+    await notifier.observe(_result("t1", "fail"))
+    await notifier.observe(_result("t1", "success"))
+    assert sent == []
+
+
 async def test_notifier_uses_updated_threshold(tmp_path, monkeypatch):
     store = ConfigStore(tmp_path / "data")
     await store.update_webhook_config(

@@ -51,10 +51,13 @@ class ConfigStore:
             self._persist()
             return
         self.targets = {}
+        backfill = False
         for item in raw.get("check_targets", []):
             try:
                 t = Target.model_validate(item)
                 self.targets[t.id] = t
+                if "notify_enabled" not in item:
+                    backfill = True
             except Exception:
                 continue  # 单条损坏不拖垮整体
         raw_webhook = raw.get("webhook")
@@ -63,6 +66,9 @@ class ConfigStore:
                 self._webhook = WebhookConfig.model_validate(raw_webhook)
             except Exception:
                 pass
+        if backfill:
+            # 旧版配置缺少 notify_enabled，补默认 true 并写回，保证字段齐全
+            self._persist()
 
     def _persist(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

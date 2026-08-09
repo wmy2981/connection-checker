@@ -140,6 +140,42 @@ async def test_result_store_filter_by_target_name(tmp_path):
     assert (await store.query(ResultFilter(target_name="不存在", page_size=100))).total == 0
 
 
+async def test_config_backfills_missing_notify_enabled(tmp_path):
+    """旧版 config.json 无 notify_enabled 时，加载后自动补 true 并写回磁盘。"""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    old = {
+        "version": 1,
+        "last_updated": "2026-08-09T00:00:00+08:00",
+        "check_targets": [
+            {
+                "id": "old1",
+                "name": "旧目标",
+                "ip": "8.8.8.8",
+                "check_method": "ping",
+                "check_interval": 60,
+                "time_ranges": [{"start": "00:00", "end": "23:59"}],
+                "enabled": True,
+                "created_at": "2026-08-01T00:00:00Z",
+                "updated_at": "2026-08-01T00:00:00Z",
+            }
+        ],
+        "webhook": {},
+    }
+    (data_dir / "config.json").write_text(
+        json.dumps(old, ensure_ascii=False), encoding="utf-8"
+    )
+
+    store = ConfigStore(data_dir)
+    assert (await store.get_target("old1")).notify_enabled is True
+    raw = json.loads((data_dir / "config.json").read_text(encoding="utf-8"))
+    assert raw["check_targets"][0]["notify_enabled"] is True
+
+    # 已含字段的新配置不会被重复写（无多余改动），再次加载也保持
+    store2 = ConfigStore(data_dir)
+    assert (await store2.get_target("old1")).notify_enabled is True
+
+
 async def test_config_store_webhook_persists_and_reloads(tmp_path):
     store = ConfigStore(tmp_path / "data")
     assert await store.get_webhook_config() == WebhookConfig()
