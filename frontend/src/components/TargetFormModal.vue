@@ -160,10 +160,10 @@ function submit() {
         </template>
 
         <n-form-item label="间隔(秒)" required>
-          <n-input-number v-model:value="form.check_interval" :min="0" :step="5" style="width: 100%" />
-        </n-form-item>
-        <n-form-item label=" " :show-feedback="false">
-          <span class="hint">0 = 关闭定时检查，仅手动触发</span>
+          <n-space vertical style="width: 100%">
+            <n-input-number v-model:value="form.check_interval" :min="0" :step="5" style="width: 100%" />
+            <span class="hint">0 = 关闭定时检查，仅手动触发</span>
+          </n-space>
         </n-form-item>
         <n-form-item label="超时(秒)">
           <n-input-number v-model:value="form.timeout" :min="0.1" :step="0.5" :show-button="false" style="width: 100%" placeholder="留空用默认值" />
