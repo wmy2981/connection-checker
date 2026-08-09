@@ -9,7 +9,7 @@ import type {
   WebhookConfig,
 } from '@/types'
 
-import { request } from './client'
+import { ApiError, request } from './client'
 
 function buildQuery(params: ResultFilterParams): string {
   const q = new URLSearchParams()
@@ -20,6 +20,28 @@ function buildQuery(params: ResultFilterParams): string {
   }
   const s = q.toString()
   return s ? `?${s}` : ''
+}
+
+async function downloadExport(
+  format: 'csv' | 'json',
+  params: ResultFilterParams,
+): Promise<void> {
+  const query = buildQuery(params)
+  const res = await fetch(`/api/v1/results/export.${format}${query}`)
+  if (res.status === 401) {
+    window.location.href = '/login'
+    return
+  }
+  if (!res.ok) throw new ApiError(res.status, res.statusText)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const cd = res.headers.get('Content-Disposition')
+  const m = cd?.match(/filename="([^"]+)"/)
+  a.download = m?.[1] ?? `results.${format}`
+  a.href = url
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export const api = {
@@ -42,6 +64,8 @@ export const api = {
 
   queryResults: (params: ResultFilterParams) =>
     request<Paginated<CheckResult>>(`/results${buildQuery(params)}`),
+  exportResults: (format: 'csv' | 'json', params: ResultFilterParams) =>
+    downloadExport(format, params),
   runChecks: (targetId?: string) =>
     request<CheckResult[]>('/checks/run', {
       method: 'POST',

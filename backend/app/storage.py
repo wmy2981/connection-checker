@@ -174,27 +174,28 @@ class ResultStore:
                 self._persist_all()
         await self._broadcast(result)
 
-    async def query(self, f: ResultFilter) -> Paginated:
-        def matches(r: CheckResult) -> bool:
-            if f.status not in (None, "all") and r.status != f.status:
+    @staticmethod
+    def _matches(f: ResultFilter, r: CheckResult) -> bool:
+        if f.status not in (None, "all") and r.status != f.status:
+            return False
+        if f.ip and not ip_matches(f.ip, r.ip):
+            return False
+        if f.target_name and r.target_name != f.target_name:
+            return False
+        if f.target_id and r.target_id != f.target_id:
+            return False
+        if f.date and r.checked_at.astimezone().strftime("%Y-%m-%d") != f.date:
+            return False
+        if f.time_start and f.time_end:
+            hhmm = r.checked_at.astimezone().strftime("%H:%M")
+            if not hhmm_in_range(hhmm, [{"start": f.time_start, "end": f.time_end}]):
                 return False
-            if f.ip and not ip_matches(f.ip, r.ip):
-                return False
-            if f.target_name and r.target_name != f.target_name:
-                return False
-            if f.target_id and r.target_id != f.target_id:
-                return False
-            if f.date and r.checked_at.astimezone().strftime("%Y-%m-%d") != f.date:
-                return False
-            if f.time_start and f.time_end:
-                hhmm = r.checked_at.astimezone().strftime("%H:%M")
-                if not hhmm_in_range(hhmm, [{"start": f.time_start, "end": f.time_end}]):
-                    return False
-            return True
+        return True
 
+    async def query(self, f: ResultFilter) -> Paginated:
         async with self._lock:
             all_results = list(self._results)
-        filtered = [r for r in reversed(all_results) if matches(r)]
+        filtered = [r for r in reversed(all_results) if self._matches(f, r)]
         total = len(filtered)
         start = (f.page - 1) * f.page_size
         page_items = filtered[start : start + f.page_size]
@@ -205,6 +206,12 @@ class ResultStore:
             page_size=f.page_size,
             pages=(total + f.page_size - 1) // f.page_size if total else 0,
         )
+
+    async def export_all(self, f: ResultFilter) -> list[CheckResult]:
+        """与 query 相同的过滤条件，返回全量结果（不分页、按时间倒序）。"""
+        async with self._lock:
+            all_results = list(self._results)
+        return [r for r in reversed(all_results) if self._matches(f, r)]
 
     async def trend(self, hours: int = 24) -> list[dict[str, Any]]:
         """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。"""

@@ -140,6 +140,19 @@ function applyFilters() {
   void fetchResults()
 }
 
+function exportResults(format: 'csv' | 'json') {
+  const params: ResultFilterParams = {
+    status: filters.status,
+    ip: filters.ip,
+    target_name: filters.target_name,
+    target_id: filters.target_id,
+    date: filters.date ?? undefined,
+    time_start: filters.time_start ?? undefined,
+    time_end: filters.time_end ?? undefined,
+  }
+  api.exportResults(format, params).catch((e) => message.error(errText(e)))
+}
+
 function resetFilters() {
   filters.status = 'all'
   filters.ip = ''
@@ -381,6 +394,8 @@ const columns: DataTableColumns<CheckResult> = [
               />
               <n-button type="primary" secondary @click="applyFilters">查询</n-button>
               <n-button quaternary @click="resetFilters">重置</n-button>
+              <n-button size="small" secondary @click="exportResults('csv')">导出 CSV</n-button>
+              <n-button size="small" secondary @click="exportResults('json')">导出 JSON</n-button>
             </n-space>
 
             <div class="table">

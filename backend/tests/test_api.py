@@ -101,6 +101,41 @@ def test_manual_run_and_results(logged_client: TestClient, fake_checker, no_sche
     assert none["total"] == 0
 
 
+def test_results_export_csv(logged_client: TestClient, fake_checker, no_scheduler):
+    fake_checker(status="success", message="假检查成功", latency_ms=12.3)
+    logged_client.post("/api/v1/targets", json=_payload())
+    logged_client.post("/api/v1/checks/run", json={})
+
+    resp = logged_client.get("/api/v1/results/export.csv")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    lines = resp.content.decode("utf-8-sig").splitlines()
+    assert lines[0].startswith("时间")
+    assert len(lines) == 2  # 表头 + 1 行
+    assert "success" in lines[1]
+    assert "12.3" in lines[1]
+
+    # 筛选条件同样作用于导出
+    filtered = logged_client.get(
+        "/api/v1/results/export.csv", params={"status": "timeout"}
+    )
+    assert len(filtered.content.decode("utf-8-sig").splitlines()) == 1  # 仅表头
+
+
+def test_results_export_json(logged_client: TestClient, fake_checker, no_scheduler):
+    fake_checker(status="success", message="假检查成功", latency_ms=12.3)
+    logged_client.post("/api/v1/targets", json=_payload())
+    logged_client.post("/api/v1/checks/run", json={})
+
+    resp = logged_client.get("/api/v1/results/export.json")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    data = resp.json()
+    assert isinstance(data, list) and len(data) == 1
+    assert data[0]["status"] == "success"
+    assert data[0]["latency_ms"] == 12.3
+
+
 def test_manual_run_unknown_target(logged_client: TestClient):
     resp = logged_client.post("/api/v1/checks/run", json={"target_id": "nonexistent"})
     assert resp.status_code == 404
