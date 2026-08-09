@@ -134,6 +134,11 @@ async def test_port_success():
         outcome = await PortChecker(1.0).check(_target("port", port=port))
         assert outcome.status == "success"
         assert outcome.extra["port"] == port
+        assert outcome.extra["remote_ip"] == "127.0.0.1"
+        assert outcome.extra["remote_port"] == port
+        assert outcome.extra["family"] == "IPv4"
+        assert outcome.extra["local_ip"] == "127.0.0.1"
+        assert outcome.extra["local_port"] > 0
     finally:
         server.close()
         await server.wait_closed()
