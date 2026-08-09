@@ -8,7 +8,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # 必改：登录访问码。不设置则首次启动自动生成并打印到日志。
+      # 必改：登录访问码，以环境变量为权威（修改后重启生效）。留空则不启用认证、直接进入面板（仅限可信内网）。
       CONNECTCHECKER_ACCESS_CODE: change-me
       # 容器时区：所有时间显示与历史筛选均以此为准（IANA 名称，如 Asia/Shanghai）
       TZ: Asia/Shanghai
