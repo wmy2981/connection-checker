@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from ping3.errors import HostUnknown
 
+from app.checkers.dns import DnsChecker
 from app.checkers.http import HttpChecker
 from app.checkers.ping import PingChecker
 from app.checkers.port import PortChecker
@@ -79,6 +80,49 @@ async def test_ping_partial_loss(monkeypatch):
     outcome = await PingChecker(timeout=1.0, count=4).check(_target("ping"))
     assert outcome.status == "success"
     assert outcome.extra["packet_loss_pct"] == 50
+
+
+async def test_dns_success(monkeypatch):
+    def fake_getaddrinfo(host, port, *a, **k):
+        assert host == "example.com"
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("2606:2800:220:1:248:1893:25c8:1946", 0, 0, 0),
+            ),
+        ]
+
+    monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo)
+    outcome = await DnsChecker(1.0).check(_target("dns", ip="example.com"))
+    assert outcome.status == "success"
+    assert outcome.extra["resolved_ip"] == [
+        "2606:2800:220:1:248:1893:25c8:1946",
+        "93.184.216.34",
+    ]
+    assert outcome.extra["resolved_count"] == 2
+
+
+async def test_dns_host_not_found(monkeypatch):
+    def fake_getaddrinfo(*a, **k):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr("socket.getaddrinfo", fake_getaddrinfo)
+    outcome = await DnsChecker(1.0).check(_target("dns", ip="no-such-host.invalid"))
+    assert outcome.status == "fail"
+
+
+async def test_dns_timeout(monkeypatch):
+    def slow_getaddrinfo(*a, **k):
+        time.sleep(0.3)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+
+    monkeypatch.setattr("socket.getaddrinfo", slow_getaddrinfo)
+    outcome = await DnsChecker(0.05).check(_target("dns", ip="example.com"))
+    assert outcome.status == "timeout"
 
 
 async def test_port_success():

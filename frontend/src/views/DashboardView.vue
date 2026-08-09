@@ -75,7 +75,7 @@ const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'defau
   error: { type: 'default', label: '错误' },
 }
 
-const methodLabel: Record<string, string> = { ping: 'Ping', port: '端口', http: 'HTTP' }
+const methodLabel: Record<string, string> = { ping: 'Ping', port: '端口', http: 'HTTP', dns: 'DNS' }
 
 const detail = ref<CheckResult | null>(null)
 const showDetail = ref(false)

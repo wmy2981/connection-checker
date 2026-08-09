@@ -1,4 +1,4 @@
-export type CheckMethod = 'ping' | 'port' | 'http'
+export type CheckMethod = 'ping' | 'port' | 'http' | 'dns'
 export type Status = 'success' | 'fail' | 'timeout' | 'error'
 
 export interface TimeRange {

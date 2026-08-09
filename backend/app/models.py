@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
-CheckMethod = Literal["ping", "port", "http"]
+CheckMethod = Literal["ping", "port", "http", "dns"]
 Status = Literal["success", "fail", "timeout", "error"]
 StatusOrAll = Literal["success", "fail", "timeout", "error", "all"]
 

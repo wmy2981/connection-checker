@@ -43,6 +43,7 @@ const methodOptions = [
   { label: 'Ping', value: 'ping' },
   { label: 'TCP 端口', value: 'port' },
   { label: 'HTTP(S)', value: 'http' },
+  { label: 'DNS 解析', value: 'dns' },
 ]
 const schemeOptions = [
   { label: 'http', value: 'http' },
