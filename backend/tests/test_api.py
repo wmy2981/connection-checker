@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.main import create_app
 from app.models import AppSettings, Target
 from app.notifier import Notifier
 from app.scheduler import Scheduler
@@ -9,6 +10,22 @@ from app.storage import ConfigStore, ResultStore
 
 def _payload(name: str = "测试", method: str = "ping", ip: str = "8.8.8.8") -> dict:
     return {"name": name, "ip": ip, "check_method": method, "check_interval": 60}
+
+
+def test_no_access_code_disables_auth(tmp_path):
+    """未设置访问码 = 免认证模式：直接访问面板，登录接口随意通过。"""
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        access_code="",
+        jwt_secret="x" * 40,
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        assert client.get("/api/v1/auth/me").json()["authenticated"] is True
+        assert client.get("/api/v1/targets").status_code == 200
+        resp = client.post("/api/v1/auth/login", json={"access_code": "anything"})
+        assert resp.status_code == 200
 
 
 def test_login_wrong_code(client: TestClient):

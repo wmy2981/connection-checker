@@ -22,10 +22,11 @@ def test_env_access_code_hashed(tmp_path):
     assert "abc123" not in text
 
 
-def test_generated_access_code(tmp_path):
+def test_empty_access_code_disables_auth(tmp_path):
+    """未设置访问码 = 免认证模式：auth_enabled 为 False，不再生成随机码。"""
     sec = _security(tmp_path)
-    assert sec.generated_access_code is not None
-    assert sec.verify_access_code(sec.generated_access_code) is True
+    assert sec.auth_enabled is False
+    assert sec.verify_access_code("anything") is False
 
 
 def test_token_roundtrip(tmp_path):

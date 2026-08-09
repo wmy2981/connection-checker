@@ -24,12 +24,9 @@ class Security:
         self.secrets = secrets_store
         self.settings = settings
         self._hasher = PasswordHasher()
-        self._generated_code: str | None = None
+        # 访问码以环境变量为权威；留空 = 免认证模式（直接进入面板）
+        self.auth_enabled = bool(settings.access_code)
         self._ensure()
-
-    @property
-    def generated_access_code(self) -> str | None:
-        return self._generated_code
 
     def _ensure(self) -> None:
         # JWT secret：环境变量优先，否则生成并持久化
@@ -37,19 +34,12 @@ class Security:
             self.secrets.jwt_secret = self.settings.jwt_secret
         if not self.secrets.jwt_secret:
             self.secrets.jwt_secret = secrets.token_urlsafe(32)
-        # 访问码：环境变量优先；未提供且无存量哈希则生成随机码
+        # 访问码：环境变量为权威，每次运行以此为准；留空不生成随机码
         code = self.settings.access_code
         if code:
             if not self._verify_code(code):
                 self.secrets.access_code_hash = self._hasher.hash(code)
                 logger.info("访问码已从环境变量更新并哈希化存储")
-        elif not self.secrets.access_code_hash:
-            self._generated_code = secrets.token_urlsafe(9)
-            self.secrets.access_code_hash = self._hasher.hash(self._generated_code)
-            logger.warning(
-                "未设置 CONNECTCHECKER_ACCESS_CODE，已生成随机访问码: %s",
-                self._generated_code,
-            )
         self.secrets.save()
 
     def _verify_code(self, code: str) -> bool:
@@ -106,8 +96,13 @@ def get_security(request: Request) -> Security:
 
 
 def require_auth(request: Request) -> None:
-    """JWT Cookie 校验 + 变更请求要求 JSON 内容类型（CSRF 纵深防御）。"""
+    """JWT Cookie 校验 + 变更请求要求 JSON 内容类型（CSRF 纵深防御）。
+
+    未设置访问码时为免认证模式，直接放行。
+    """
     security = get_security(request)
+    if not security.auth_enabled:
+        return
     token = request.cookies.get(COOKIE_NAME)
     if not token or not security.verify_token(token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未授权访问")

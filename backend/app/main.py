@@ -38,11 +38,8 @@ async def lifespan(app: FastAPI):
     app.state.security = security
     app.state.notifier = notifier
     app.state.scheduler = scheduler
-    if security.generated_access_code:
-        logger.warning(
-            "未设置 CONNECTCHECKER_ACCESS_CODE，请使用自动生成的访问码登录: %s",
-            security.generated_access_code,
-        )
+    if not security.auth_enabled:
+        logger.warning("未设置 CONNECTCHECKER_ACCESS_CODE，认证已禁用（免登录模式）")
 
     await scheduler.start()
     try:
