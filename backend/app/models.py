@@ -41,6 +41,7 @@ class TargetBase(BaseModel):
         default_factory=lambda: [TimeRange(start="00:00", end="23:59")]
     )
     enabled: bool = True
+    notify_enabled: bool = True  # 关闭后该目标不推送告警/恢复通知
     # port 检查
     port: int | None = Field(default=None, ge=1, le=65535)
     # http 检查
@@ -67,6 +68,7 @@ class TargetUpdate(BaseModel):
     check_interval: int | None = Field(default=None, ge=0)
     time_ranges: list[TimeRange] | None = None
     enabled: bool | None = None
+    notify_enabled: bool | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
     scheme: Literal["http", "https"] | None = None
     url_path: str | None = Field(default=None, max_length=500)

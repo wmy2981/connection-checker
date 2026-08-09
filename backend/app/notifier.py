@@ -22,6 +22,9 @@ class Notifier:
         if not cfg.enabled or not cfg.url:
             return
         tid = result.target_id
+        target = await self.config_store.get_target(tid)
+        if target is not None and not target.notify_enabled:
+            return  # 该目标单独关闭了告警（含恢复通知）
         if result.status == "success":
             was_alerted = tid in self._alerted
             self._fails[tid] = 0

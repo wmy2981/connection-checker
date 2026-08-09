@@ -32,6 +32,7 @@ const form = reactive({
   check_method: 'ping' as CheckMethod,
   check_interval: 60,
   enabled: true,
+  notify_enabled: true,
   port: null as number | null,
   scheme: 'http' as 'http' | 'https',
   url_path: '/',
@@ -60,6 +61,7 @@ watch(
     form.check_method = t?.check_method ?? 'ping'
     form.check_interval = t?.check_interval ?? 60
     form.enabled = t?.enabled ?? true
+    form.notify_enabled = t?.notify_enabled ?? true
     form.port = t?.port ?? null
     form.scheme = t?.scheme ?? 'http'
     form.url_path = t?.url_path ?? '/'
@@ -96,6 +98,7 @@ function submit() {
     check_method: form.check_method,
     check_interval: form.check_interval,
     enabled: form.enabled,
+    notify_enabled: form.notify_enabled,
     time_ranges: form.time_ranges.length ? form.time_ranges : [{ start: '00:00', end: '23:59' }],
     port: form.check_method === 'ping' ? null : form.port,
     scheme: form.scheme,
@@ -167,6 +170,12 @@ function submit() {
         </n-form-item>
         <n-form-item label="启用">
           <n-switch v-model:value="form.enabled" />
+        </n-form-item>
+        <n-form-item label="告警推送">
+          <n-switch v-model:value="form.notify_enabled" />
+        </n-form-item>
+        <n-form-item label=" " :show-feedback="false">
+          <span class="hint">关闭后该目标不推送告警与恢复通知</span>
         </n-form-item>
 
         <n-form-item label="时间窗口">

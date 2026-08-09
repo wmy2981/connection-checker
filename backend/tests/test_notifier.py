@@ -1,4 +1,4 @@
-from app.models import CheckResult, WebhookConfig
+from app.models import CheckResult, Target, WebhookConfig
 from app.notifier import Notifier
 from app.storage import ConfigStore
 
@@ -54,6 +54,29 @@ async def test_notifier_disabled_or_no_url(tmp_path, monkeypatch):
 
     await notifier.observe(_result("t1", "fail"))
     await notifier.observe(_result("t1", "fail"))
+    assert sent == []
+
+
+async def test_notifier_target_notify_disabled(tmp_path, monkeypatch):
+    """目标关闭 notify_enabled 后，告警与恢复通知都不推送。"""
+    store = ConfigStore(tmp_path / "data")
+    await store.update_webhook_config(
+        WebhookConfig(enabled=True, url="http://example.invalid", fail_threshold=2)
+    )
+    notifier = Notifier(store)
+    sent: list[tuple[str, str]] = []
+
+    async def _send(kind, summary, result, url):
+        sent.append((kind, summary))
+
+    monkeypatch.setattr(notifier, "_send", _send)
+
+    await store.upsert_target(
+        Target(id="t1", ip="8.8.8.8", check_method="ping", notify_enabled=False)
+    )
+    await notifier.observe(_result("t1", "fail"))
+    await notifier.observe(_result("t1", "fail"))
+    await notifier.observe(_result("t1", "success"))
     assert sent == []
 
 

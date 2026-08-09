@@ -14,6 +14,7 @@ export interface Target {
   check_interval: number
   time_ranges: TimeRange[]
   enabled: boolean
+  notify_enabled: boolean
   port: number | null
   scheme: 'http' | 'https'
   url_path: string
@@ -30,6 +31,7 @@ export interface TargetInput {
   check_interval?: number
   time_ranges?: TimeRange[]
   enabled?: boolean
+  notify_enabled?: boolean
   port?: number | null
   scheme?: 'http' | 'https'
   url_path?: string
