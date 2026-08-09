@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from app.models import CheckResult, ResultFilter, Target, TimeRange, WebhookConfig
+from app.models import AppSettings, CheckResult, ResultFilter, Target, TimeRange, WebhookConfig
 from app.storage import ConfigStore, ResultStore
 
 
@@ -174,6 +174,49 @@ async def test_config_backfills_missing_notify_enabled(tmp_path):
     # 已含字段的新配置不会被重复写（无多余改动），再次加载也保持
     store2 = ConfigStore(data_dir)
     assert (await store2.get_target("old1")).notify_enabled is True
+
+
+async def test_config_store_app_settings_persists_and_reloads(tmp_path):
+    store = ConfigStore(tmp_path / "data")
+    assert await store.get_app_settings() == AppSettings()
+
+    await store.update_app_settings(
+        AppSettings(
+            result_max_records=12345,
+            ping_count=6,
+            connect_timeout=1.5,
+            http_timeout=2.5,
+        )
+    )
+
+    store2 = ConfigStore(tmp_path / "data")
+    cfg = await store2.get_app_settings()
+    assert cfg.result_max_records == 12345
+    assert cfg.ping_count == 6
+    assert cfg.connect_timeout == 1.5
+    assert cfg.http_timeout == 2.5
+
+    raw = json.loads((tmp_path / "data" / "config.json").read_text(encoding="utf-8"))
+    assert raw["app"]["http_timeout"] == 2.5
+
+
+async def test_result_store_resize_trims(tmp_path):
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    for _ in range(5):
+        await store.append(_result("t1", "success", datetime.now(timezone.utc)))
+
+    store.resize(3)
+    assert len(await store.recent(100)) == 3
+    lines = [
+        line
+        for line in (tmp_path / "results.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert len(lines) == 3
+
+    # 相同上限为幂等操作
+    store.resize(3)
+    assert len(await store.recent(100)) == 3
 
 
 async def test_config_store_webhook_persists_and_reloads(tmp_path):

@@ -15,6 +15,7 @@ export interface Target {
   time_ranges: TimeRange[]
   enabled: boolean
   notify_enabled: boolean
+  ping_count: number | null
   port: number | null
   scheme: 'http' | 'https'
   url_path: string
@@ -32,6 +33,7 @@ export interface TargetInput {
   time_ranges?: TimeRange[]
   enabled?: boolean
   notify_enabled?: boolean
+  ping_count?: number | null
   port?: number | null
   scheme?: 'http' | 'https'
   url_path?: string
@@ -101,6 +103,13 @@ export interface WebhookConfig {
   enabled: boolean
   url: string | null
   fail_threshold: number
+}
+
+export interface AppSettings {
+  result_max_records: number
+  ping_count: number
+  connect_timeout: number
+  http_timeout: number
 }
 
 export interface TrendBucket {

@@ -162,6 +162,20 @@
 
 响应：新产生的检查结果数组（与 `/results` 单条结构相同）。指定目标不存在：`404`。
 
+## 全局设置
+
+### GET /settings/app
+
+返回全局检查参数（存于 `config.json` 的 `app` 节）。
+
+```json
+{ "result_max_records": 50000, "ping_count": 4, "connect_timeout": 3.0, "http_timeout": 5.0 }
+```
+
+### PUT /settings/app
+
+更新配置，请求体同上。成功：`200`，返回更新后的配置。`result_max_records` 修改立即生效，超出部分即时裁剪；`ping_count` 为全局默认，单个 `ping` 目标可在 `check_targets[].ping_count` 覆盖。
+
 ## 告警设置
 
 ### GET /settings/webhook

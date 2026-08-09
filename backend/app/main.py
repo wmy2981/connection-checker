@@ -23,7 +23,10 @@ async def lifespan(app: FastAPI):
     cfg: Settings = app.state.settings
     cfg.ensure_dirs()
     config_store = ConfigStore(cfg.data_dir)
-    result_store = ResultStore(cfg.data_dir / "results.jsonl", cfg.result_max_records)
+    result_store = ResultStore(
+        cfg.data_dir / "results.jsonl",
+        (await config_store.get_app_settings()).result_max_records,
+    )
     secrets_store = SecretsStore(cfg.data_dir)
     security = Security(secrets_store, cfg)
     notifier = Notifier(config_store)

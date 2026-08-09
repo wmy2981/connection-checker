@@ -8,7 +8,15 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
-from app.models import CheckResult, Paginated, ResultFilter, Target, WebhookConfig, new_id
+from app.models import (
+    AppSettings,
+    CheckResult,
+    Paginated,
+    ResultFilter,
+    Target,
+    WebhookConfig,
+    new_id,
+)
 from app.timeutil import hhmm_in_range
 
 
@@ -39,6 +47,7 @@ class ConfigStore:
         self._lock = asyncio.Lock()
         self.targets: dict[str, Target] = {}
         self._webhook = WebhookConfig()
+        self._app = AppSettings()
         self._load()
 
     def _load(self) -> None:
@@ -66,6 +75,12 @@ class ConfigStore:
                 self._webhook = WebhookConfig.model_validate(raw_webhook)
             except Exception:
                 pass
+        raw_app = raw.get("app")
+        if isinstance(raw_app, dict):
+            try:
+                self._app = AppSettings.model_validate(raw_app)
+            except Exception:
+                pass
         if backfill:
             # 旧版配置缺少 notify_enabled，补默认 true 并写回，保证字段齐全
             self._persist()
@@ -77,6 +92,7 @@ class ConfigStore:
             "last_updated": now_iso(),
             "check_targets": [t.model_dump(mode="json") for t in self.targets.values()],
             "webhook": self._webhook.model_dump(mode="json"),
+            "app": self._app.model_dump(mode="json"),
         }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -131,6 +147,15 @@ class ConfigStore:
             self._persist()
         return self._webhook
 
+    async def get_app_settings(self) -> AppSettings:
+        return self._app
+
+    async def update_app_settings(self, cfg: AppSettings) -> AppSettings:
+        async with self._lock:
+            self._app = cfg
+            self._persist()
+        return self._app
+
 
 class ResultStore:
     """检查结果，存于 data/results.jsonl（每行一个 JSON）。追加写，超上限截断最旧。"""
@@ -163,6 +188,17 @@ class ResultStore:
         with self.path.open("w", encoding="utf-8") as f:
             for r in self._results:
                 f.write(r.model_dump_json() + "\n")
+
+    def resize(self, max_records: int) -> None:
+        """调整保留上限并立即裁剪超出部分（同步调用，内部无 await）。"""
+        if max_records == self.max_records:
+            return
+        self.max_records = max_records
+        excess = len(self._results) - self.max_records
+        if excess > 0:
+            for _ in range(excess):
+                self._results.popleft()
+            self._persist_all()
 
     async def append(self, result: CheckResult) -> None:
         trimmed = False

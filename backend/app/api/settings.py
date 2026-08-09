@@ -1,9 +1,9 @@
-"""应用设置：Webhook 告警配置（存于 config.json）。"""
+"""应用设置：Webhook 告警配置与全局检查参数（均存于 config.json）。"""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.auth import require_auth
-from app.models import WebhookConfig
+from app.models import AppSettings, WebhookConfig
 from app.notifier import Notifier
 from app.storage import ConfigStore
 
@@ -28,6 +28,20 @@ async def get_webhook(request: Request) -> WebhookConfig:
 @router.put("/webhook")
 async def update_webhook(request: Request, payload: WebhookConfig) -> WebhookConfig:
     return await _get_config_store(request).update_webhook_config(payload)
+
+
+@router.get("/app")
+async def get_app_settings(request: Request) -> AppSettings:
+    return await _get_config_store(request).get_app_settings()
+
+
+@router.put("/app")
+async def update_app_settings(request: Request, payload: AppSettings) -> AppSettings:
+    store = _get_config_store(request)
+    saved = await store.update_app_settings(payload)
+    # 结果保留上限立即生效并裁剪超出部分
+    request.app.state.result_store.resize(saved.result_max_records)
+    return saved
 
 
 @router.post("/webhook/test")

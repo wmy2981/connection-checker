@@ -80,15 +80,16 @@ class Scheduler:
 
     async def run_check(self, target: Target) -> CheckResult:
         """对单个目标执行一次检查并落库。"""
+        app_cfg = await self.config_store.get_app_settings()
         default_timeout = (
-            self.settings.http_timeout
+            app_cfg.http_timeout
             if target.check_method == "http"
-            else self.settings.connect_timeout
+            else app_cfg.connect_timeout
         )
         checker = build_checker(
             target,
             default_timeout=default_timeout,
-            ping_count=self.settings.ping_count,
+            ping_count=target.ping_count or app_cfg.ping_count,
             success_codes=self.settings.http_success_codes,
         )
         outcome = await checker.check(target)
@@ -127,6 +128,9 @@ class Scheduler:
                 if mtime is not None and mtime != self._last_mtime:
                     self._last_mtime = mtime
                     await self.config_store.reload()
+                    await self.result_store.resize(
+                        (await self.config_store.get_app_settings()).result_max_records
+                    )
                     await self.reconcile()
         except asyncio.CancelledError:
             pass

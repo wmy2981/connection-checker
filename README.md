@@ -124,13 +124,9 @@ cd frontend && npm run build
 | `CONNECTCHECKER_JWT_EXPIRE_MINUTES` | `720` | 会话有效期（分钟） |
 | `CONNECTCHECKER_APP_PORT` | `8000` | 服务端口 |
 | `CONNECTCHECKER_DATA_DIR` | `./data` | 数据目录 |
-| `CONNECTCHECKER_RESULT_MAX_RECORDS` | `50000` | 结果保留条数上限 |
-| `CONNECTCHECKER_PING_COUNT` | `4` | Ping 单次检查发包数 |
-| `CONNECTCHECKER_CONNECT_TIMEOUT` | `3.0` | Ping / TCP 默认超时（秒） |
-| `CONNECTCHECKER_HTTP_TIMEOUT` | `5.0` | HTTP 默认超时（秒） |
 | `CONNECTCHECKER_COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 
-> Webhook 告警配置（地址、启用开关、失败阈值）在「配置管理」页设置，存于 `config.json`，见下方说明。
+> 检查参数（结果保留条数、Ping 发包数、Ping/TCP 超时、HTTP 超时）与 Webhook 告警配置均在「配置管理」页设置，存于 `config.json` 的 `app` 与 `webhook` 节，见下方说明。
 
 ## 检查目标
 
@@ -140,10 +136,12 @@ cd frontend && npm run build
 | --- | --- |
 | `name` | 可选名称，便于识别 |
 | `ip` | IP 或主机名 |
-| `check_method` | `ping` / `port` / `http` |
+| `check_method` | `ping` / `port` / `http` / `dns` |
 | `check_interval` | 检查间隔（秒；`0` = 关闭定时检查，仅手动触发） |
 | `time_ranges` | 时间段数组，支持跨午夜；留空则全天 |
 | `enabled` | 是否启用 |
+| `notify_enabled` | 是否推送该目标的告警/恢复通知（默认 `true`；全局关闭时一律不推送） |
+| `ping_count` | `ping` 方式单次发包数；留空用全局默认（「配置管理」中设置） |
 | `port` | `port` 方式必填；`http` 方式可覆盖默认端口 |
 | `scheme` / `url_path` | `http` 方式的协议与路径 |
 | `http_success_codes` | `http` 方式的期望状态码集合（默认 200–399） |

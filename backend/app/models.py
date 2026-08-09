@@ -44,6 +44,8 @@ class TargetBase(BaseModel):
     notify_enabled: bool = True  # 关闭后该目标不推送告警/恢复通知
     # port 检查
     port: int | None = Field(default=None, ge=1, le=65535)
+    # ping 检查
+    ping_count: int | None = Field(default=None, ge=1, le=20)  # None = 用全局默认
     # http 检查
     scheme: Literal["http", "https"] = "http"
     url_path: str = Field(default="/", max_length=500)
@@ -69,6 +71,7 @@ class TargetUpdate(BaseModel):
     time_ranges: list[TimeRange] | None = None
     enabled: bool | None = None
     notify_enabled: bool | None = None
+    ping_count: int | None = Field(default=None, ge=1, le=20)
     port: int | None = Field(default=None, ge=1, le=65535)
     scheme: Literal["http", "https"] | None = None
     url_path: str | None = Field(default=None, max_length=500)
@@ -142,3 +145,12 @@ class WebhookConfig(BaseModel):
     enabled: bool = True
     url: str | None = Field(default=None, max_length=500)
     fail_threshold: int = Field(default=3, ge=1, le=100)  # 连续失败次数
+
+
+class AppSettings(BaseModel):
+    """全局检查参数，存于 config.json 的 app 节（非环境变量，前端可配置）。"""
+
+    result_max_records: int = Field(default=50000, ge=100, le=1_000_000)
+    ping_count: int = Field(default=4, ge=1, le=20)
+    connect_timeout: float = Field(default=3.0, gt=0, le=60)  # ping/TCP 超时（秒）
+    http_timeout: float = Field(default=5.0, gt=0, le=120)  # HTTP 超时（秒）

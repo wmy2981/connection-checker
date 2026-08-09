@@ -18,7 +18,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { api } from '@/api'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
-import type { Target, TargetInput, WebhookConfig } from '@/types'
+import type { AppSettings, Target, TargetInput, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -33,6 +33,14 @@ const webhookUrl = ref('')
 const webhookSaving = ref(false)
 const webhookTesting = ref(false)
 
+const appSettings = ref<AppSettings>({
+  result_max_records: 50000,
+  ping_count: 4,
+  connect_timeout: 3,
+  http_timeout: 5,
+})
+const appSaving = ref(false)
+
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
 }
@@ -45,6 +53,26 @@ async function load() {
     /* 401 由 client 处理 */
   } finally {
     loading.value = false
+  }
+}
+
+async function loadAppSettings() {
+  try {
+    appSettings.value = await api.getAppSettings()
+  } catch {
+    /* 401 由 client 处理 */
+  }
+}
+
+async function saveAppSettings() {
+  appSaving.value = true
+  try {
+    appSettings.value = await api.updateAppSettings(appSettings.value)
+    message.success('全局设置已保存')
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    appSaving.value = false
   }
 }
 
@@ -90,6 +118,7 @@ async function saveWebhook() {
 
 onMounted(() => {
   load()
+  loadAppSettings()
   loadWebhook()
 })
 
@@ -235,6 +264,51 @@ const columns: DataTableColumns<Target> = [
             :max-height="640"
           />
           <n-empty v-else description="暂无检查目标，点击「新增目标」添加" />
+        </n-card>
+
+        <n-card title="全局检查设置" size="small">
+          <n-space vertical size="large">
+            <n-space align="center" :size="12" wrap>
+              <span class="label">结果保留条数</span>
+              <n-input-number
+                v-model:value="appSettings.result_max_records"
+                :min="100"
+                :max="1000000"
+                :step="1000"
+                style="width: 180px"
+              />
+              <span class="hint">results.jsonl 保留上限，超出自动裁掉最旧记录</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">Ping 发包数</span>
+              <n-input-number v-model:value="appSettings.ping_count" :min="1" :max="20" style="width: 180px" />
+              <span class="hint">全局默认；单个 Ping 目标可在「编辑」中单独覆盖</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">Ping/TCP 超时(秒)</span>
+              <n-input-number
+                v-model:value="appSettings.connect_timeout"
+                :min="0.1"
+                :max="60"
+                :step="0.5"
+                style="width: 180px"
+              />
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">HTTP 超时(秒)</span>
+              <n-input-number
+                v-model:value="appSettings.http_timeout"
+                :min="0.1"
+                :max="120"
+                :step="0.5"
+                style="width: 180px"
+              />
+              <span class="hint">配置存于 config.json，外部编辑 5 秒内自动生效</span>
+            </n-space>
+            <n-space justify="end">
+              <n-button type="primary" :loading="appSaving" @click="saveAppSettings">保存全局设置</n-button>
+            </n-space>
+          </n-space>
         </n-card>
 
         <n-card title="告警通知（Webhook）" size="small">

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.models import Target
+from app.models import AppSettings, Target
 from app.notifier import Notifier
 from app.scheduler import Scheduler
 from app.storage import ConfigStore, ResultStore
@@ -165,6 +165,90 @@ def test_results_filter_ip_wildcard(logged_client: TestClient, fake_checker, no_
 
     assert logged_client.get("/api/v1/results", params={"ip": "192.168.*"}).json()["total"] == 2
     assert logged_client.get("/api/v1/results", params={"ip": "192.168.1.*"}).json()["total"] == 1
+
+
+def test_app_settings_crud_and_resize(logged_client: TestClient, fake_checker, no_scheduler):
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload())
+    logged_client.post("/api/v1/targets", json=_payload(name="b", ip="1.1.1.1"))
+    logged_client.post("/api/v1/checks/run", json={})
+    assert logged_client.get("/api/v1/results").json()["total"] == 2
+
+    cfg = logged_client.get("/api/v1/settings/app").json()
+    assert cfg["result_max_records"] == 50000
+    assert cfg["ping_count"] == 4
+    assert cfg["connect_timeout"] == 3.0
+    assert cfg["http_timeout"] == 5.0
+
+    updated = logged_client.put(
+        "/api/v1/settings/app", json={**cfg, "result_max_records": 100}
+    )
+    assert updated.status_code == 200
+    assert updated.json()["result_max_records"] == 100
+    # 上限修改立即生效（存储层同步更新）
+    assert logged_client.app.state.result_store.max_records == 100
+    assert logged_client.get("/api/v1/results").json()["total"] == 2
+
+    resp = logged_client.put("/api/v1/settings/app", json={**cfg, "ping_count": 0})
+    assert resp.status_code == 422
+
+
+def test_target_ping_count_field(logged_client: TestClient):
+    created = logged_client.post(
+        "/api/v1/targets",
+        json={**_payload(method="ping"), "ping_count": 7},
+    )
+    assert created.status_code == 201
+    assert created.json()["ping_count"] == 7
+
+    updated = logged_client.put(
+        f"/api/v1/targets/{created.json()['id']}", json={"ping_count": None}
+    )
+    assert updated.status_code == 200
+    assert updated.json()["ping_count"] is None
+
+
+async def test_run_check_resolves_ping_count(tmp_path, monkeypatch):
+    """ping 发包数：目标单独设置优先，未设置用全局默认。"""
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        access_code="test-access-code",
+        jwt_secret="x" * 40,
+    )
+    store = ConfigStore(settings.data_dir)
+    result_store = ResultStore(settings.data_dir / "results.jsonl", 100)
+    scheduler = Scheduler(store, result_store, Notifier(store), settings)
+
+    captured: dict[str, int] = {}
+
+    class _Fake:
+        def __init__(self, outcome):
+            self.outcome = outcome
+
+        async def check(self, target):
+            return self.outcome
+
+    def fake_build(target, default_timeout, ping_count, success_codes=None):
+        captured["ping_count"] = ping_count
+        from app.checkers.base import CheckOutcome
+
+        return _Fake(CheckOutcome("success", "ok", latency_ms=1.0))
+
+    monkeypatch.setattr("app.scheduler.build_checker", fake_build)
+
+    await store.update_app_settings(AppSettings(ping_count=6))
+    await store.upsert_target(
+        Target(id="t1", ip="127.0.0.1", check_method="ping")
+    )
+    await scheduler.run_check(await store.get_target("t1"))
+    assert captured["ping_count"] == 6  # 未设置 → 全局默认
+
+    await store.upsert_target(
+        Target(id="t2", ip="127.0.0.1", check_method="ping", ping_count=9)
+    )
+    await scheduler.run_check(await store.get_target("t2"))
+    assert captured["ping_count"] == 9  # 单独设置覆盖全局
 
 
 def test_webhook_settings_crud(logged_client: TestClient):

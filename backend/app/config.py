@@ -15,13 +15,7 @@ class Settings(BaseSettings):
     jwt_secret: str = ""  # 为空则首次启动随机生成并持久化
     jwt_expire_minutes: int = 720
 
-    # 结果保留
-    result_max_records: int = 50000
-
-    # 检查参数默认值
-    ping_count: int = 4
-    connect_timeout: float = 3.0  # ping/TCP 超时（秒）
-    http_timeout: float = 5.0  # HTTP 超时（秒）
+    # 检查参数默认值（HTTP 期望状态码；其余检查参数已迁移到 config.json 的 app 节）
     http_success_codes: list[int] = [
         200, 201, 202, 203, 204, 205, 206,
         300, 301, 302, 303, 304, 307, 308,

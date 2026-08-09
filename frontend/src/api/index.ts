@@ -1,4 +1,5 @@
 import type {
+  AppSettings,
   CheckResult,
   Paginated,
   ResultFilterParams,
@@ -73,6 +74,9 @@ export const api = {
     }),
   stats: () => request<StatsSummary>('/stats/summary'),
   statsTrend: (hours = 24) => request<TrendData>(`/stats/trend?hours=${hours}`),
+  getAppSettings: () => request<AppSettings>('/settings/app'),
+  updateAppSettings: (cfg: AppSettings) =>
+    request<AppSettings>('/settings/app', { method: 'PUT', body: JSON.stringify(cfg) }),
   getWebhook: () => request<WebhookConfig>('/settings/webhook'),
   updateWebhook: (cfg: WebhookConfig) =>
     request<WebhookConfig>('/settings/webhook', { method: 'PUT', body: JSON.stringify(cfg) }),

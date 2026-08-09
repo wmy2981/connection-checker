@@ -15,10 +15,6 @@ def settings(tmp_path: Path) -> Settings:
         data_dir=tmp_path / "data",
         access_code="test-access-code",
         jwt_secret="test-jwt-secret-0123456789abcdefghijklmnopqrstuvwxyz",
-        result_max_records=50,
-        connect_timeout=0.5,
-        http_timeout=0.5,
-        ping_count=1,
     )
 
 

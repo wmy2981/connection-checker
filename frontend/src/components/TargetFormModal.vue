@@ -33,6 +33,7 @@ const form = reactive({
   check_interval: 60,
   enabled: true,
   notify_enabled: true,
+  ping_count: null as number | null,
   port: null as number | null,
   scheme: 'http' as 'http' | 'https',
   url_path: '/',
@@ -62,6 +63,7 @@ watch(
     form.check_interval = t?.check_interval ?? 60
     form.enabled = t?.enabled ?? true
     form.notify_enabled = t?.notify_enabled ?? true
+    form.ping_count = t?.ping_count ?? null
     form.port = t?.port ?? null
     form.scheme = t?.scheme ?? 'http'
     form.url_path = t?.url_path ?? '/'
@@ -100,6 +102,7 @@ function submit() {
     enabled: form.enabled,
     notify_enabled: form.notify_enabled,
     time_ranges: form.time_ranges.length ? form.time_ranges : [{ start: '00:00', end: '23:59' }],
+    ping_count: form.check_method === 'ping' ? form.ping_count : null,
     port: form.check_method === 'ping' ? null : form.port,
     scheme: form.scheme,
     url_path: form.check_method === 'http' ? form.url_path : '/',
@@ -133,6 +136,19 @@ function submit() {
         <n-form-item label="检查方式" required>
           <n-select v-model:value="form.check_method" :options="methodOptions" />
         </n-form-item>
+
+        <template v-if="form.check_method === 'ping'">
+          <n-form-item label="发包数">
+            <n-input-number
+              v-model:value="form.ping_count"
+              :min="1"
+              :max="20"
+              :show-button="false"
+              style="width: 100%"
+              placeholder="留空用全局默认"
+            />
+          </n-form-item>
+        </template>
 
         <template v-if="form.check_method === 'port'">
           <n-form-item label="端口" required>
