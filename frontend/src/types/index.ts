@@ -62,6 +62,8 @@ export interface ResultFilterParams {
   date?: string
   time_start?: string
   time_end?: string
+  start_at?: string
+  end_at?: string
   page?: number
   page_size?: number
 }

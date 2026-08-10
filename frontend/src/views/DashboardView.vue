@@ -20,7 +20,6 @@ import {
   NSelect,
   NSpace,
   NTag,
-  NTimePicker,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -30,7 +29,7 @@ import AppFooter from '@/components/AppFooter.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import TrendChart from '@/components/TrendChart.vue'
-import { dateFromTimestamp, formatDateTime } from '@/composables/useAppTime'
+import { formatDateTime } from '@/composables/useAppTime'
 import type { CheckResult, ResultFilterParams, StatsSummary, TrendData } from '@/types'
 
 const router = useRouter()
@@ -46,17 +45,21 @@ const pageSize = 20
 const loading = ref(false)
 const running = ref(false)
 
-const dateValue = ref<number | null>(null)
-
 const filters = reactive({
   status: 'all',
   ip: '',
   target_name: '',
   target_id: '',
-  date: null as string | null,
-  time_start: null as string | null,
-  time_end: null as string | null,
+  start_at: null as number | null,
+  end_at: null as number | null,
 })
+
+function toIsoTs(ts: number | null): string | undefined {
+  if (!ts) return undefined
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 const targetNameOptions = computed(() => {
   const names = stats.value?.target_status
@@ -117,9 +120,8 @@ async function fetchResults() {
       ip: filters.ip,
       target_name: filters.target_name,
       target_id: filters.target_id,
-      date: filters.date ?? undefined,
-      time_start: filters.time_start ?? undefined,
-      time_end: filters.time_end ?? undefined,
+      start_at: toIsoTs(filters.start_at),
+      end_at: toIsoTs(filters.end_at),
       page: page.value,
       page_size: pageSize,
     }
@@ -156,9 +158,8 @@ function onExportSelect(key: string) {
     ip: filters.ip,
     target_name: filters.target_name,
     target_id: filters.target_id,
-    date: filters.date ?? undefined,
-    time_start: filters.time_start ?? undefined,
-    time_end: filters.time_end ?? undefined,
+    start_at: toIsoTs(filters.start_at),
+    end_at: toIsoTs(filters.end_at),
   }
   api.exportResults(key as 'csv' | 'json', params).catch((e) => message.error(errText(e)))
 }
@@ -168,24 +169,14 @@ function resetFilters() {
   filters.ip = ''
   filters.target_name = ''
   filters.target_id = ''
-  filters.date = null
-  filters.time_start = null
-  filters.time_end = null
-  dateValue.value = null
+  filters.start_at = null
+  filters.end_at = null
   applyFilters()
 }
 
 function filterByTarget(targetId: string) {
   filters.target_id = targetId
   applyFilters()
-}
-
-function setDateFilter(value: number | null) {
-  if (!value) {
-    filters.date = null
-    return
-  }
-  filters.date = dateFromTimestamp(value)
 }
 
 function runAll() {
@@ -388,22 +379,19 @@ const columns: DataTableColumns<CheckResult> = [
                 clearable
                 style="width: 150px"
               />
-              <n-date-picker v-model:value="dateValue" style="width: 150px" @update:value="setDateFilter" />
-              <n-time-picker
-                :formatted-value="filters.time_start"
-                format="HH:mm"
-                value-format="HH:mm"
-                placeholder="开始时间"
-                style="width: 120px"
-                @update:formatted-value="(v: string | null) => (filters.time_start = v || null)"
+              <n-date-picker
+                v-model:value="filters.start_at"
+                type="datetime"
+                placeholder="起始时间"
+                clearable
+                style="width: 170px"
               />
-              <n-time-picker
-                :formatted-value="filters.time_end"
-                format="HH:mm"
-                value-format="HH:mm"
+              <n-date-picker
+                v-model:value="filters.end_at"
+                type="datetime"
                 placeholder="结束时间"
-                style="width: 120px"
-                @update:formatted-value="(v: string | null) => (filters.time_end = v || null)"
+                clearable
+                style="width: 170px"
               />
               <n-button type="primary" secondary @click="applyFilters">查询</n-button>
               <n-button quaternary @click="resetFilters">重置</n-button>

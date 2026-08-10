@@ -280,3 +280,28 @@ async def test_latest_per_target_and_counts(tmp_path):
     assert counts["success"] == 3
     assert counts["fail"] == 1
     assert counts["timeout"] == 1
+
+
+async def test_result_store_datetime_range_cross_day(tmp_path):
+    """start_at/end_at 完整时间范围过滤，支持跨日（如 22:00 到次日 06:00）。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    # 本地时区下的跨日窗口：08-09 22:00 -> 08-10 06:00
+    night = datetime(2026, 8, 9, 22, 0).astimezone()
+    early = datetime(2026, 8, 10, 5, 30).astimezone()
+    outside = datetime(2026, 8, 10, 8, 0).astimezone()
+    await store.append(_result("t1", "success", night))
+    await store.append(_result("t1", "success", early))
+    await store.append(_result("t1", "success", outside))
+
+    hits = await store.query(
+        ResultFilter(start_at="2026-08-09T22:00:00", end_at="2026-08-10T06:00:00", page_size=100)
+    )
+    assert hits.total == 2  # 22:00 与次日 05:30 在窗口内，08:00 排除
+
+    # 只给起始（无结束）：窗口内 + 之后的全部
+    hits = await store.query(ResultFilter(start_at="2026-08-10T00:00:00", page_size=100))
+    assert hits.total == 2
+
+    # 只给结束（无起始）
+    hits = await store.query(ResultFilter(end_at="2026-08-10T06:00:00", page_size=100))
+    assert hits.total == 2

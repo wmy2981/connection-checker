@@ -106,6 +106,9 @@ class ResultFilter(BaseModel):
     date: str | None = None  # YYYY-MM-DD
     time_start: str | None = None
     time_end: str | None = None
+    # 完整时间范围（本地时间 ISO，如 2026-08-09T22:00:00），支持跨日筛选
+    start_at: str | None = None
+    end_at: str | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=200)
 

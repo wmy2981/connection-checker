@@ -232,6 +232,26 @@ class ResultStore:
             hhmm = r.checked_at.astimezone().strftime("%H:%M")
             if not hhmm_in_range(hhmm, [{"start": f.time_start, "end": f.time_end}]):
                 return False
+        # 完整时间范围（本地时区比较），起止可跨日
+        checked = r.checked_at.astimezone()
+        if f.start_at:
+            try:
+                start_dt = datetime.fromisoformat(f.start_at)
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.astimezone()  # 前端传本地时间，按本地时区解释
+                if checked < start_dt:
+                    return False
+            except ValueError:
+                pass
+        if f.end_at:
+            try:
+                end_dt = datetime.fromisoformat(f.end_at)
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.astimezone()
+                if checked > end_dt:
+                    return False
+            except ValueError:
+                pass
         return True
 
     async def query(self, f: ResultFilter) -> Paginated:
