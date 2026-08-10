@@ -309,7 +309,10 @@ const columns: DataTableColumns<CheckResult> = [
   <n-layout class="page">
     <n-layout-header bordered class="header">
       <div class="container header-inner">
-        <div class="brand">连接检查工具</div>
+        <div class="brand">
+          <img src="/favicon.svg" alt="" class="brand-logo" />
+          <span>连接检查工具</span>
+        </div>
         <n-space align="center" wrap :size="8">
           <n-button size="small" type="primary" :loading="running" @click="runAll">全部立即检查</n-button>
           <n-button size="small" @click="router.push('/config')">配置管理</n-button>
@@ -474,9 +477,17 @@ const columns: DataTableColumns<CheckResult> = [
   gap: 12px;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 18px;
   font-weight: 600;
   white-space: nowrap;
+}
+.brand-logo {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
 }
 .content {
   padding: 24px 0 48px;
