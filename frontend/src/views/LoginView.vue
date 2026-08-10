@@ -45,7 +45,7 @@ async function submit() {
         @keyup.enter="submit"
       />
       <n-alert v-if="error" type="error" class="err" :title="error" />
-      <n-button type="primary" block :loading="loading" @click="submit">登录</n-button>
+      <n-button type="primary" block class="submit" :loading="loading" @click="submit">登录</n-button>
     </n-card>
   </div>
 </template>
@@ -75,5 +75,8 @@ async function submit() {
 }
 .err {
   margin: 12px 0;
+}
+.submit {
+  margin-top: 16px;
 }
 </style>
