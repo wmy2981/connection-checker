@@ -1,6 +1,8 @@
 import type {
   AppSettings,
   CheckResult,
+  LogEntry,
+  LogQueryParams,
   Paginated,
   ResultFilterParams,
   StatsSummary,
@@ -24,11 +26,12 @@ function buildQuery(params: ResultFilterParams): string {
 }
 
 async function downloadExport(
-  format: 'csv' | 'json',
+  path: string,
   params: ResultFilterParams,
+  fallbackName = 'export.txt',
 ): Promise<void> {
   const query = buildQuery(params)
-  const res = await fetch(`/api/v1/results/export.${format}${query}`)
+  const res = await fetch(`${path}${query}`)
   if (res.status === 401) {
     window.location.href = '/login'
     return
@@ -39,7 +42,7 @@ async function downloadExport(
   const a = document.createElement('a')
   const cd = res.headers.get('Content-Disposition')
   const m = cd?.match(/filename="([^"]+)"/)
-  a.download = m?.[1] ?? `results.${format}`
+  a.download = m?.[1] ?? fallbackName
   a.href = url
   a.click()
   URL.revokeObjectURL(url)
@@ -66,7 +69,7 @@ export const api = {
   queryResults: (params: ResultFilterParams) =>
     request<Paginated<CheckResult>>(`/results${buildQuery(params)}`),
   exportResults: (format: 'csv' | 'json', params: ResultFilterParams) =>
-    downloadExport(format, params),
+    downloadExport(`/api/v1/results/export.${format}`, params, `results.${format}`),
   runChecks: (targetId?: string) =>
     request<CheckResult[]>('/checks/run', {
       method: 'POST',
@@ -85,4 +88,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(url ? { url } : {}),
     }),
+  queryLogs: (params: LogQueryParams) =>
+    request<Paginated<LogEntry>>(`/logs${buildQuery(params as ResultFilterParams)}`),
+  exportLogs: (params: LogQueryParams) =>
+    downloadExport('/api/v1/logs/export', params as ResultFilterParams, 'logs.log'),
 }

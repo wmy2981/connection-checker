@@ -110,6 +110,22 @@ export interface AppSettings {
   ping_count: number
   connect_timeout: number
   http_timeout: number
+  log_level: string
+}
+
+export interface LogEntry {
+  time: string
+  level: string
+  name: string
+  message: string
+}
+
+export interface LogQueryParams {
+  level?: string
+  start?: string
+  end?: string
+  page?: number
+  page_size?: number
 }
 
 export interface TrendBucket {

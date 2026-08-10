@@ -5,15 +5,20 @@ import {
   NButton,
   NCard,
   NDataTable,
+  NDatePicker,
   NEmpty,
   NInput,
   NInputNumber,
   NLayout,
   NLayoutContent,
   NLayoutHeader,
+  NModal,
+  NPagination,
   NPopconfirm,
+  NSelect,
   NSpace,
   NSwitch,
+  NTag,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -21,7 +26,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { api } from '@/api'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
-import type { AppSettings, Target, TargetInput, WebhookConfig } from '@/types'
+import type { AppSettings, LogEntry, Target, TargetInput, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -41,8 +46,101 @@ const appSettings = ref<AppSettings>({
   ping_count: 4,
   connect_timeout: 3,
   http_timeout: 5,
+  log_level: 'INFO',
 })
 const appSaving = ref(false)
+
+const logLevelOptions = [
+  { label: 'DEBUG', value: 'DEBUG' },
+  { label: 'INFO', value: 'INFO' },
+  { label: 'WARN', value: 'WARN' },
+  { label: 'ERROR', value: 'ERROR' },
+]
+
+// --- 日志管理弹窗 ---
+const showLogs = ref(false)
+const logLoading = ref(false)
+const logExporting = ref(false)
+const logLevel = ref('')
+const logStart = ref<number | null>(null)
+const logEnd = ref<number | null>(null)
+const logPage = ref(1)
+const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pages: number }>({
+  results: [],
+  total: 0,
+  page_size: 100,
+  pages: 0,
+})
+
+const logLevelTagType: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
+  DEBUG: 'default',
+  INFO: 'info',
+  WARN: 'warning',
+  WARNING: 'warning',
+  ERROR: 'error',
+}
+
+const logColumns: DataTableColumns<LogEntry> = [
+  { title: '时间', key: 'time', width: 180 },
+  {
+    title: '级别',
+    key: 'level',
+    width: 90,
+    render: (row) => h(NTag, { size: 'small', bordered: false, type: logLevelTagType[row.level] ?? 'default' }, { default: () => row.level }),
+  },
+  { title: '来源', key: 'name', width: 140 },
+  {
+    title: '消息',
+    key: 'message',
+    render: (row) =>
+      h('div', { style: 'white-space: pre-wrap; word-break: break-all; line-height: 1.5;' }, row.message),
+  },
+]
+
+function toLogTs(ts: number | null): string | undefined {
+  if (!ts) return undefined
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function openLogs() {
+  showLogs.value = true
+  logPage.value = 1
+  fetchLogs()
+}
+
+async function fetchLogs() {
+  logLoading.value = true
+  try {
+    logData.value = await api.queryLogs({
+      level: logLevel.value || undefined,
+      start: toLogTs(logStart.value),
+      end: toLogTs(logEnd.value),
+      page: logPage.value,
+      page_size: 100,
+    })
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    logLoading.value = false
+  }
+}
+
+async function exportLogs() {
+  logExporting.value = true
+  try {
+    await api.exportLogs({
+      level: logLevel.value || undefined,
+      start: toLogTs(logStart.value),
+      end: toLogTs(logEnd.value),
+    })
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    logExporting.value = false
+  }
+}
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
@@ -246,6 +344,7 @@ const columns: DataTableColumns<Target> = [
         <div class="brand">配置管理</div>
         <n-space align="center" wrap :size="8">
           <n-button size="small" @click="router.push('/dashboard')">返回仪表盘</n-button>
+          <n-button size="small" @click="openLogs">日志管理</n-button>
           <ThemeToggle />
           <n-button size="small" type="primary" @click="openCreate">新增目标</n-button>
         </n-space>
@@ -309,6 +408,15 @@ const columns: DataTableColumns<Target> = [
               />
               <span class="hint">配置存于 config.json，外部编辑 5 秒内自动生效</span>
             </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">日志等级</span>
+              <n-select
+                v-model:value="appSettings.log_level"
+                :options="logLevelOptions"
+                style="width: 120px"
+              />
+              <span class="hint">保存到 config.json，热加载生效；级别越低日志越详细</span>
+            </n-space>
             <n-space justify="end">
               <n-button type="primary" :loading="appSaving" @click="saveAppSettings">保存全局设置</n-button>
             </n-space>
@@ -347,6 +455,46 @@ const columns: DataTableColumns<Target> = [
     :target="editing"
     @save="save"
   />
+
+  <n-modal
+    v-model:show="showLogs"
+    preset="card"
+    title="日志管理"
+    style="width: 900px; max-width: 96vw"
+  >
+    <n-space vertical :size="12">
+      <n-space align="center" :size="12" wrap>
+        <span class="label">最低级别</span>
+        <n-select
+          v-model:value="logLevel"
+          :options="[{ label: '全部', value: '' }, ...logLevelOptions]"
+          style="width: 110px"
+        />
+        <span class="label">起始</span>
+        <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" />
+        <span class="label">结束</span>
+        <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" />
+        <n-button size="small" type="primary" :loading="logLoading" @click="fetchLogs">查询</n-button>
+        <n-button size="small" :loading="logExporting" @click="exportLogs">导出</n-button>
+      </n-space>
+      <n-data-table
+        :columns="logColumns"
+        :data="logData.results"
+        :loading="logLoading"
+        :max-height="420"
+        size="small"
+      />
+      <n-space align="center" justify="space-between" :size="12">
+        <span class="hint">共 {{ logData.total }} 条；时间为服务器本地时区</span>
+        <n-pagination
+          v-model:page="logPage"
+          :page-count="logData.pages || 1"
+          :page-size="logData.page_size"
+          @update:page="fetchLogs"
+        />
+      </n-space>
+    </n-space>
+  </n-modal>
 </template>
 
 <style scoped>
