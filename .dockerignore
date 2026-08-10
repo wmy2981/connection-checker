@@ -10,10 +10,8 @@ node_modules
 frontend/node_modules
 *.log
 *.bak
-.git
 .idea
 .vscode
 tests
 docs
 docker-compose.yml
-check_results.json.bak
