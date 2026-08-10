@@ -191,4 +191,4 @@ GitHub Actions 由三个工作流组成（`.github/workflows/`）：
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
