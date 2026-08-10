@@ -37,6 +37,7 @@ const form = reactive({
   port: null as number | null,
   scheme: 'http' as 'http' | 'https',
   url_path: '/',
+  http_codes_text: '',
   timeout: null as number | null,
   time_ranges: [{ start: '00:00', end: '23:59' }] as TimeRange[],
 })
@@ -67,6 +68,7 @@ watch(
     form.port = t?.port ?? null
     form.scheme = t?.scheme ?? 'http'
     form.url_path = t?.url_path ?? '/'
+    form.http_codes_text = t?.http_success_codes?.join(',') ?? ''
     form.timeout = t?.timeout ?? null
     form.time_ranges =
       t && t.time_ranges.length ? t.time_ranges.map((r) => ({ ...r })) : [{ start: '00:00', end: '23:59' }]
@@ -79,6 +81,14 @@ function addRange() {
 
 function removeRange(index: number) {
   form.time_ranges.splice(index, 1)
+}
+
+function parseCodes(text: string): number[] | null {
+  const codes = text
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 100 && n <= 599)
+  return codes.length ? [...new Set(codes)] : null
 }
 
 function validate(): string | null {
@@ -106,6 +116,7 @@ function submit() {
     port: form.check_method === 'ping' ? null : form.port,
     scheme: form.scheme,
     url_path: form.check_method === 'http' ? form.url_path : '/',
+    http_success_codes: form.check_method === 'http' ? parseCodes(form.http_codes_text) : null,
     timeout: form.timeout,
   }
   emit('save', payload)
@@ -172,6 +183,12 @@ function submit() {
           </n-form-item>
           <n-form-item label="路径">
             <n-input v-model:value="form.url_path" placeholder="/" />
+          </n-form-item>
+          <n-form-item label="期望状态码">
+            <n-input
+              v-model:value="form.http_codes_text"
+              placeholder="逗号分隔，如 200,201,204；留空用默认（200-399）"
+            />
           </n-form-item>
         </template>
 
