@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { NAlert, NButton, NCard, NInput, useMessage } from 'naive-ui'
 
 import { api } from '@/api'
+import AppFooter from '@/components/AppFooter.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 
 const router = useRouter()
@@ -47,6 +48,7 @@ async function submit() {
       <n-alert v-if="error" type="error" class="err" :title="error" />
       <n-button type="primary" block class="submit" :loading="loading" @click="submit">登录</n-button>
     </n-card>
+    <AppFooter />
   </div>
 </template>
 

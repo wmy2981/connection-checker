@@ -26,6 +26,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 
 import { api } from '@/api'
+import AppFooter from '@/components/AppFooter.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import TrendChart from '@/components/TrendChart.vue'
@@ -435,6 +436,7 @@ const columns: DataTableColumns<CheckResult> = [
         </n-space>
       </div>
     </n-layout-content>
+    <AppFooter />
   </n-layout>
 
   <n-modal v-model:show="showDetail">

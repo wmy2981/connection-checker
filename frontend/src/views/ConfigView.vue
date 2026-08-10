@@ -24,6 +24,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 
 import { api } from '@/api'
+import AppFooter from '@/components/AppFooter.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import type { AppSettings, LogEntry, Target, TargetInput, WebhookConfig } from '@/types'
@@ -448,6 +449,7 @@ const columns: DataTableColumns<Target> = [
         </n-space>
       </div>
     </n-layout-content>
+    <AppFooter />
   </n-layout>
 
   <TargetFormModal
