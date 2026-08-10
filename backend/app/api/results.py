@@ -24,6 +24,8 @@ async def query_results(
     date: str | None = Query(default=None),
     time_start: str | None = Query(default=None),
     time_end: str | None = Query(default=None),
+    start_at: str | None = Query(default=None, description="起始时间（本地时间 ISO，支持跨日）"),
+    end_at: str | None = Query(default=None, description="结束时间（本地时间 ISO）"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
 ) -> Paginated:
@@ -36,6 +38,8 @@ async def query_results(
         date=date,
         time_start=time_start,
         time_end=time_end,
+        start_at=start_at,
+        end_at=end_at,
         page=page,
         page_size=page_size,
     )
@@ -50,6 +54,8 @@ def _export_filters(
     date: str | None = Query(default=None),
     time_start: str | None = Query(default=None),
     time_end: str | None = Query(default=None),
+    start_at: str | None = Query(default=None),
+    end_at: str | None = Query(default=None),
 ) -> ResultFilter:
     return ResultFilter(
         status=status,
@@ -59,6 +65,8 @@ def _export_filters(
         date=date,
         time_start=time_start,
         time_end=time_end,
+        start_at=start_at,
+        end_at=end_at,
     )
 
 

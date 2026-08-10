@@ -386,3 +386,28 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     assert stats["last_total_checks"] == 1
     assert stats["last_fail"] == 1
     assert stats["target_status"][0]["last_status"] == "fail"
+
+
+def test_results_api_datetime_range_filter(logged_client: TestClient, fake_checker, no_scheduler):
+    """start_at/end_at 参数须经 API 生效（回归：端点曾未声明参数被静默忽略）。"""
+    from datetime import datetime, timedelta
+
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload())
+    assert logged_client.post("/api/v1/checks/run", json={}).status_code == 200
+
+    assert logged_client.get("/api/v1/results").json()["total"] >= 1
+    # 未来起始时间 → 无结果
+    future = logged_client.get("/api/v1/results", params={"start_at": "2099-01-01T00:00:00"}).json()
+    assert future["total"] == 0
+    # 过去的结束时间 → 无结果
+    past = logged_client.get("/api/v1/results", params={"end_at": "2000-01-01T00:00:00"}).json()
+    assert past["total"] == 0
+    # 覆盖多天的范围（昨天 00:00 → 明天 23:59）→ 命中今天的结果（跨日场景）
+    today = datetime.now().astimezone()
+    start = (today - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00")
+    end = (today + timedelta(days=1)).strftime("%Y-%m-%dT23:59:59")
+    span = logged_client.get(
+        "/api/v1/results", params={"start_at": start, "end_at": end}
+    ).json()
+    assert span["total"] >= 1
