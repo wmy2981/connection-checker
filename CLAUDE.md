@@ -17,6 +17,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 后端包位于 `backend/app`（setuptools 包发现已配置，pip editable install）
 - 生产环境由 FastAPI 托管前端构建产物（`backend/app/static/`，此目录在 gitignore 且仓库中不存在）；裸跑 uvicorn 不带前端，本地开发用 vite dev server
+- 前端 UI 用 naive-ui（组件必须显式 import，见关键坑）；图标用配套本地库 `@vicons/ionicons5`（npm 依赖，勿用 CDN）
+- 日志装配在 `backend/app/logging_setup.py`，日志查看/导出 API 在 `backend/app/api/logs.py`（见「日志系统」）
+
+## 日志系统
+
+- 日志文件：`data/logs/app-YYYY-MM-DD.log`，按本地时区（`datetime.now().astimezone()`，容器 TZ 生效）每天轮转，保留 30 天；同时输出控制台
+- 级别存 `config.json` 的 `app.log_level`（DEBUG/INFO/WARN/ERROR，默认 INFO），watchdog 检测到配置变更时热更新
+- 查看/导出：`GET /api/v1/logs`（参数 level=最低级别、start/end=本地时间 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM:SS、page/page_size，倒序分页，traceback 续行合并）、`GET /api/v1/logs/export`（导出 .log 文本）
+- **运行时日志消息必须英文**（用户要求），代码注释/docstring 中文不受限；前端配置页有「日志管理」弹窗与「日志等级」设置
 
 ## 发版雷区
 
@@ -39,6 +48,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 代码须保持 Python 3.10 兼容：本地 venv 是 3.10，而 CI/Docker 用 3.12
 - Windows 下 venv 在 `.venv/Scripts/python`（非 `.venv/bin`）
 - POST/PUT/PATCH 强制要求 `Content-Type: application/json`（CSRF 纵深防御，否则返回 415）
-- `config.json` 每 5 秒热加载（外部编辑立即生效）：检查目标、`webhook` 告警、`app` 全局检查参数（结果保留条数/Ping 发包数/超时，结果上限修改立即裁剪）；`results.jsonl` 追加写、超上限时整文件重写
+- `config.json` 每 5 秒热加载（外部编辑立即生效）：检查目标、`webhook` 告警、`app` 全局检查参数（结果保留条数/Ping 发包数/超时/日志等级，结果上限修改立即裁剪）；`results.jsonl` 追加写、超上限时整文件重写
 - 访问码以 `CONNECTCHECKER_ACCESS_CODE` 为权威且每次运行重新校验；**留空则免认证**（内网部署可用，勿暴露公网）
 - 容器运行需 `--cap-add=NET_RAW`（ping 依赖原始套接字）
+- **更新目标禁止 `model_copy(update=dict)`**：它不重新验证嵌套模型，`time_ranges` 会变成 dict，调度循环 `is_time_in_ranges` 抛 AttributeError 使定时任务**静默死亡**（2026-08 生产事故：用户编辑目标后全部定时检查停止 23 小时且无日志）。必须 `Target.model_validate({**existing.model_dump(), **payload.model_dump(exclude_unset=True)})` 整体重验证
+- **不要 `await` 同步方法**：如 `ResultStore.resize` 是同步方法，`await resize(...)` 在 Python 3.12 抛 TypeError 杀死 config watchdog（配置热加载失效）。同步方法直接调用
+- **naive-ui 组件必须显式 import**：模板用了 `<n-layout>`/`<n-layout-header>`/`<n-layout-content>` 等但漏 import 时，Vue 渲染成自定义元素、布局错乱且仅 console 报 warning（曾因此布局崩溃）
+- 调度任务异常退出不会自动续跑：`_run_loop` 循环体已包 try/except（单次异常不杀任务），任务意外死亡后 `reconcile()` 会检测 `task.done()` 并重建（打 warning 日志）；手动检查（`manual_run`）不经过 `is_time_in_ranges`，与定时检查路径不同
+- 前端主题三模式（跟随系统/浅色/深色）由 `useDark.ts` 管理，选择存 `localStorage` 的 `cc-theme-mode`（默认跟随系统），`ThemeToggle.vue` 下拉切换；所有页面共用该组件
