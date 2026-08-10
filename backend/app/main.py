@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import api_router
 from app.auth import Security
 from app.config import Settings
+from app.logging_setup import configure
 from app.notifier import Notifier
 from app.scheduler import Scheduler
 from app.storage import ConfigStore, ResultStore, SecretsStore
@@ -23,9 +24,18 @@ async def lifespan(app: FastAPI):
     cfg: Settings = app.state.settings
     cfg.ensure_dirs()
     config_store = ConfigStore(cfg.data_dir)
+    app_cfg = await config_store.get_app_settings()
+    # 日志装配必须在业务日志输出之前：控制台 + 每日文件，级别来自 config.json
+    configure(cfg.data_dir / "logs", app_cfg.log_level)
+    logger.info(
+        "Application started: log level=%s, log dir=%s, data dir=%s",
+        app_cfg.log_level,
+        cfg.data_dir / "logs",
+        cfg.data_dir,
+    )
     result_store = ResultStore(
         cfg.data_dir / "results.jsonl",
-        (await config_store.get_app_settings()).result_max_records,
+        app_cfg.result_max_records,
     )
     secrets_store = SecretsStore(cfg.data_dir)
     security = Security(secrets_store, cfg)
@@ -39,7 +49,9 @@ async def lifespan(app: FastAPI):
     app.state.notifier = notifier
     app.state.scheduler = scheduler
     if not security.auth_enabled:
-        logger.warning("未设置 CONNECTCHECKER_ACCESS_CODE，认证已禁用（免登录模式）")
+        logger.warning("CONNECTCHECKER_ACCESS_CODE not set, auth disabled (no-login mode)")
+    else:
+        logger.info("Auth enabled")
 
     await scheduler.start()
     try:

@@ -154,3 +154,4 @@ class AppSettings(BaseModel):
     ping_count: int = Field(default=4, ge=1, le=20)
     connect_timeout: float = Field(default=3.0, gt=0, le=60)  # ping/TCP 超时（秒）
     http_timeout: float = Field(default=5.0, gt=0, le=120)  # HTTP 超时（秒）
+    log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARN|ERROR)$")

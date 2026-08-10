@@ -30,6 +30,10 @@ class Notifier:
             self._fails[tid] = 0
             if was_alerted:
                 self._alerted.discard(tid)
+                logger.info(
+                    "Target %s recovered, sending recovery notification",
+                    result.target_name or result.ip,
+                )
                 await self._send("恢复", "连接已恢复正常", result, cfg.url)
             return
 
@@ -37,6 +41,11 @@ class Notifier:
         self._fails[tid] = n
         if n == cfg.fail_threshold:
             self._alerted.add(tid)
+            logger.warning(
+                "Target %s failed %d times in a row, sending alert",
+                result.target_name or result.ip,
+                n,
+            )
             await self._send("告警", f"连续 {n} 次检查失败", result, cfg.url)
 
     async def send_test(self, url: str) -> tuple[bool, str]:
@@ -78,4 +87,4 @@ class Notifier:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
         except Exception as e:  # noqa: BLE001
-            logger.error("Webhook 通知失败: %s", e)
+            logger.error("Webhook notification failed: %s", e)

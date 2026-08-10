@@ -1,0 +1,120 @@
+"""日志系统测试：级别解析、每日文件、查看/导出 API。"""
+
+import logging
+
+import pytest
+from pydantic import ValidationError
+
+from app.logging_setup import DailyFileHandler, apply_level, parse_level
+from app.models import AppSettings
+
+
+def test_parse_level():
+    assert parse_level("DEBUG") == logging.DEBUG
+    assert parse_level("warn") == logging.WARNING
+    assert parse_level("ERROR") == logging.ERROR
+    assert parse_level("bogus") == logging.INFO  # 未知级别回退 INFO
+
+
+def test_apply_level_changes_root_level():
+    apply_level("ERROR")
+    assert logging.getLogger().getEffectiveLevel() == logging.ERROR
+    apply_level("INFO")
+    assert logging.getLogger().getEffectiveLevel() == logging.INFO
+
+
+def test_daily_file_handler_writes_and_rolls(tmp_path, monkeypatch):
+    import app.logging_setup as ls
+
+    real_datetime = ls.datetime
+    current = ["2026-08-10 10:00:00"]
+
+    class FakeDateTime:
+        @staticmethod
+        def now():
+            return real_datetime.strptime(current[0], "%Y-%m-%d %H:%M:%S")
+
+        strptime = staticmethod(real_datetime.strptime)
+
+    monkeypatch.setattr(ls, "datetime", FakeDateTime)
+
+    handler = DailyFileHandler(tmp_path)
+    handler.emit(logging.LogRecord("app.test", logging.INFO, "", 1, "hello", (), None))
+    handler.emit(logging.LogRecord("app.test", logging.WARNING, "", 1, "world", (), None))
+    files = sorted(tmp_path.glob("app-*.log"))
+    assert len(files) == 1
+    assert files[0].name == "app-2026-08-10.log"
+    content = files[0].read_text(encoding="utf-8")
+    assert "hello" in content and "world" in content
+    assert "| INFO | app.test | hello" in content
+
+    # 跨日：再次写入应切到新文件，且旧文件内容保留
+    current[0] = "2026-08-11 00:00:00"
+    handler.emit(logging.LogRecord("app.test", logging.INFO, "", 1, "next-day", (), None))
+    files = sorted(tmp_path.glob("app-*.log"))
+    assert [f.name for f in files] == ["app-2026-08-10.log", "app-2026-08-11.log"]
+    assert "next-day" in (tmp_path / "app-2026-08-11.log").read_text(encoding="utf-8")
+    handler.close()
+
+
+def test_logs_api_level_filter(logged_client, no_scheduler):
+    logging.getLogger("app.scheduler").info("logs-test-info")
+    logging.getLogger("app.scheduler").warning("logs-test-warn")
+    logging.getLogger("app.scheduler").error("logs-test-error")
+
+    resp = logged_client.get("/api/v1/logs", params={"level": "WARN"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 2
+    levels = {r["level"] for r in data["results"]}
+    assert "INFO" not in levels
+    assert "WARNING" in levels and "ERROR" in levels
+
+    resp = logged_client.get("/api/v1/logs", params={"level": "DEBUG"})
+    assert resp.json()["total"] >= data["total"]
+
+
+def test_logs_api_time_filter(logged_client):
+    resp = logged_client.get("/api/v1/logs", params={"start": "2099-01-01"})
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0  # 未来时间范围不应命中
+
+
+def test_logs_pagination_newest_first(logged_client):
+    lg = logging.getLogger("app.test")
+    for i in range(5):
+        lg.warning(f"logs-page-{i}")
+    resp = logged_client.get("/api/v1/logs", params={"level": "WARN", "page": 1, "page_size": 2})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["results"]) == 2
+    assert data["page_size"] == 2
+    assert data["pages"] >= 1
+    assert data["results"][0]["time"] >= data["results"][1]["time"]  # 最新在前
+
+
+def test_logs_multiline_traceback_merged(logged_client):
+    lg = logging.getLogger("app.test")
+    try:
+        raise ValueError("logs-boom")
+    except ValueError:
+        lg.exception("logs-with-traceback")
+    resp = logged_client.get("/api/v1/logs", params={"level": "ERROR"})
+    assert resp.status_code == 200
+    hit = [r for r in resp.json()["results"] if "logs-with-traceback" in r["message"]]
+    assert hit and "Traceback" in hit[0]["message"]
+
+
+def test_logs_export(logged_client):
+    logging.getLogger("app.test").warning("logs-export-me")
+    resp = logged_client.get("/api/v1/logs/export", params={"level": "WARN"})
+    assert resp.status_code == 200
+    assert "logs-export-me" in resp.text
+    assert "attachment" in resp.headers["content-disposition"]
+
+
+def test_app_settings_log_level_validation():
+    assert AppSettings().log_level == "INFO"
+    assert AppSettings(log_level="DEBUG").log_level == "DEBUG"
+    with pytest.raises(ValidationError):
+        AppSettings(log_level="bogus")

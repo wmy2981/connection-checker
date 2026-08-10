@@ -39,7 +39,7 @@ class Security:
         if code:
             if not self._verify_code(code):
                 self.secrets.access_code_hash = self._hasher.hash(code)
-                logger.info("访问码已从环境变量更新并哈希化存储")
+                logger.info("Access code updated from env and stored as hash")
         self.secrets.save()
 
     def _verify_code(self, code: str) -> bool:
