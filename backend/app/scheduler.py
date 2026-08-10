@@ -5,6 +5,7 @@ from datetime import datetime
 
 from app.checkers import build_checker
 from app.config import Settings
+from app.logging_setup import apply_level
 from app.models import CheckResult, Target
 from app.notifier import Notifier
 from app.storage import ConfigStore, ResultStore
@@ -51,11 +52,24 @@ class Scheduler:
             if tid not in enabled_ids:
                 self._stop_task(tid)
         for t in targets:
-            if t.enabled and t.check_interval > 0 and t.id not in self._tasks:
+            if not (t.enabled and t.check_interval > 0):
+                continue
+            task = self._tasks.get(t.id)
+            if task is not None and task.done():
+                # 任务异常退出（如早期版本被污染的 time_ranges 触发 AttributeError）：
+                # 死亡任务残留在字典里会导致永不重建，此处移除并重建
+                logger.warning(
+                    "Scheduler task for target %s (%s) exited (cancelled=%s), rebuilding",
+                    t.name or t.ip,
+                    t.id,
+                    task.cancelled(),
+                )
+                self._tasks.pop(t.id, None)
+            if t.id not in self._tasks:
                 self._tasks[t.id] = asyncio.create_task(
                     self._run_loop(t.id), name=f"check:{t.id}"
                 )
-                logger.info("已调度目标 %s (%s)", t.name or t.ip, t.id)
+                logger.info("Scheduled target %s (%s)", t.name or t.ip, t.id)
 
     def _stop_task(self, target_id: str) -> None:
         task = self._tasks.pop(target_id, None)
@@ -69,11 +83,16 @@ class Scheduler:
                 if target is None:
                     break
                 now = datetime.now().astimezone()
-                if is_time_in_ranges(now, target.time_ranges):
-                    try:
+                try:
+                    if is_time_in_ranges(now, target.time_ranges):
                         await self.run_check(target)
-                    except Exception as e:  # noqa: BLE001
-                        logger.exception("目标 %s 检查异常: %s", target.name or target.ip, e)
+                except Exception as e:  # noqa: BLE001
+                    # 任何单次异常（含数据被污染）都不能杀死任务；记录后继续下一轮
+                    logger.exception(
+                        "Scheduler loop error for target %s: %s",
+                        target.name or target.ip,
+                        e,
+                    )
                 await asyncio.sleep(target.check_interval)
         except asyncio.CancelledError:
             pass
@@ -105,6 +124,15 @@ class Scheduler:
         )
         await self.result_store.append(result)
         await self.notifier.observe(result)
+        logger.info(
+            "Check finished %s (%s) [%s] status=%s latency=%sms msg=%s",
+            target.name or target.ip,
+            target.id,
+            target.check_method,
+            result.status,
+            result.latency_ms,
+            result.message,
+        )
         return result
 
     async def manual_run(self, target_id: str | None = None) -> list[CheckResult]:
@@ -128,9 +156,16 @@ class Scheduler:
                 if mtime is not None and mtime != self._last_mtime:
                     self._last_mtime = mtime
                     await self.config_store.reload()
-                    await self.result_store.resize(
-                        (await self.config_store.get_app_settings()).result_max_records
-                    )
+                    app_cfg = await self.config_store.get_app_settings()
+                    # resize 是同步方法；await 它会在 Python 3.12 抛 TypeError 杀死 watchdog
+                    self.result_store.resize(app_cfg.result_max_records)
+                    apply_level(app_cfg.log_level)
                     await self.reconcile()
+                    logger.info(
+                        "Config hot-reloaded: targets=%d, result_max_records=%d, log_level=%s",
+                        len(await self.config_store.list_targets()),
+                        app_cfg.result_max_records,
+                        app_cfg.log_level,
+                    )
         except asyncio.CancelledError:
             pass

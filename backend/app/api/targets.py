@@ -45,8 +45,11 @@ async def update_target(request: Request, target_id: str, payload: TargetUpdate)
     existing = await store.get_target(target_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="目标不存在")
-    merged = existing.model_copy(update=payload.model_dump(exclude_unset=True))
-    merged.updated_at = datetime.now(timezone.utc)
+    # 不用 model_copy(update=dict)：它不重新验证嵌套模型，会把 time_ranges 变成
+    # dict 导致调度循环抛 AttributeError 而静默杀死定时任务。改为整体重新验证。
+    data = {**existing.model_dump(), **payload.model_dump(exclude_unset=True)}
+    data["updated_at"] = datetime.now(timezone.utc)
+    merged = Target.model_validate(data)
     await store.upsert_target(merged)
     await _get_scheduler(request).reconcile()
     return merged
