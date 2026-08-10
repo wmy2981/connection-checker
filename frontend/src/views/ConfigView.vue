@@ -8,6 +8,9 @@ import {
   NEmpty,
   NInput,
   NInputNumber,
+  NLayout,
+  NLayoutContent,
+  NLayoutHeader,
   NPopconfirm,
   NSpace,
   NSwitch,
@@ -251,7 +254,8 @@ const columns: DataTableColumns<Target> = [
 
     <n-layout-content class="content">
       <div class="container">
-        <n-card title="检查目标" size="small">
+        <n-space vertical size="large">
+          <n-card title="检查目标" size="small">
           <template #header-extra>
             <n-button size="small" secondary @click="load">刷新</n-button>
           </template>
@@ -264,9 +268,9 @@ const columns: DataTableColumns<Target> = [
             :max-height="640"
           />
           <n-empty v-else description="暂无检查目标，点击「新增目标」添加" />
-        </n-card>
+          </n-card>
 
-        <n-card title="全局检查设置" size="small">
+          <n-card title="全局检查设置" size="small">
           <n-space vertical size="large">
             <n-space align="center" :size="12" wrap>
               <span class="label">结果保留条数</span>
@@ -309,9 +313,9 @@ const columns: DataTableColumns<Target> = [
               <n-button type="primary" :loading="appSaving" @click="saveAppSettings">保存全局设置</n-button>
             </n-space>
           </n-space>
-        </n-card>
+          </n-card>
 
-        <n-card title="告警通知（Webhook）" size="small">
+          <n-card title="告警通知（Webhook）" size="small">
           <n-space vertical size="large">
             <n-space align="center" :size="12">
               <span>启用告警</span>
@@ -332,7 +336,8 @@ const columns: DataTableColumns<Target> = [
               <n-button type="primary" :loading="webhookSaving" @click="saveWebhook">保存告警配置</n-button>
             </n-space>
           </n-space>
-        </n-card>
+          </n-card>
+        </n-space>
       </div>
     </n-layout-content>
   </n-layout>
@@ -347,6 +352,7 @@ const columns: DataTableColumns<Target> = [
 <style scoped>
 .page {
   min-height: 100vh;
+  padding-top: 20px;
 }
 .header {
   padding: 0;
@@ -366,7 +372,7 @@ const columns: DataTableColumns<Target> = [
   white-space: nowrap;
 }
 .content {
-  padding: 24px 0 48px;
+  padding: 32px 0 48px;
 }
 .hint {
   color: var(--cc-text-3);

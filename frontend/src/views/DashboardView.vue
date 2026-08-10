@@ -12,6 +12,9 @@ import {
   NDropdown,
   NEmpty,
   NInput,
+  NLayout,
+  NLayoutContent,
+  NLayoutHeader,
   NModal,
   NPagination,
   NSelect,
@@ -463,6 +466,7 @@ const columns: DataTableColumns<CheckResult> = [
 <style scoped>
 .page {
   min-height: 100vh;
+  padding-top: 20px;
 }
 .header {
   padding: 0;
@@ -490,7 +494,7 @@ const columns: DataTableColumns<CheckResult> = [
   flex-shrink: 0;
 }
 .content {
-  padding: 24px 0 48px;
+  padding: 32px 0 48px;
 }
 .container {
   max-width: 1200px;
