@@ -82,17 +82,18 @@ const logLevelTagType: Record<string, 'default' | 'info' | 'warning' | 'error'> 
 }
 
 const logColumns: DataTableColumns<LogEntry> = [
-  { title: '时间', key: 'time', width: 180 },
+  { title: '时间', key: 'time', width: 160 },
   {
     title: '级别',
     key: 'level',
-    width: 90,
+    width: 80,
     render: (row) => h(NTag, { size: 'small', bordered: false, type: logLevelTagType[row.level] ?? 'default' }, { default: () => row.level }),
   },
-  { title: '来源', key: 'name', width: 140 },
+  { title: '来源', key: 'name', width: 120 },
   {
     title: '消息',
     key: 'message',
+    minWidth: 280,
     render: (row) =>
       h('div', { style: 'white-space: pre-wrap; word-break: break-all; line-height: 1.5;' }, row.message),
   },
