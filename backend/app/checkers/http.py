@@ -1,5 +1,6 @@
 """HTTP(S) 状态码检查，基于 httpx。"""
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -8,6 +9,8 @@ import httpx
 
 from app.checkers.base import BaseChecker, CheckOutcome
 from app.models import Target
+
+logger = logging.getLogger(__name__)
 
 
 def _default_port(scheme: str) -> int:
@@ -84,10 +87,13 @@ class HttpChecker(BaseChecker):
                 _fetch(), timeout=self.timeout
             )
         except (asyncio.TimeoutError, TimeoutError):  # noqa: UP024
+            logger.debug("HTTP %s: timeout after %.0fs", url, self.timeout)
             return CheckOutcome("timeout", f"请求 {url} 超时")
         except httpx.ConnectError:
+            logger.debug("HTTP %s: connection failed", url)
             return CheckOutcome("fail", f"无法连接 {url}")
         except Exception as e:  # noqa: BLE001
+            logger.debug("HTTP %s: error=%s", url, e)
             return CheckOutcome("error", f"HTTP 检查出错: {e}")
 
         elapsed = (time.monotonic() - started) * 1000
@@ -119,6 +125,16 @@ class HttpChecker(BaseChecker):
                 if tls:
                     extra["tls"] = tls
 
+        logger.debug(
+            "HTTP %s: status=%d expected=%s latency=%.1fms ttfb=%.1fms size=%dB redirects=%d",
+            url,
+            resp.status_code,
+            codes,
+            elapsed,
+            round((t_headers - started) * 1000, 1),
+            len(body),
+            len(resp.history),
+        )
         if resp.status_code in codes:
             return CheckOutcome(
                 "success",

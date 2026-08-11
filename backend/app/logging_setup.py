@@ -19,7 +19,8 @@ _LEVELS = {
     "ERROR": logging.ERROR,
 }
 
-_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+# filename:lineno 精确到产生日志的 Python 文件与行号，供日志按来源筛选
+_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
 
 
 def parse_level(level: str) -> int:

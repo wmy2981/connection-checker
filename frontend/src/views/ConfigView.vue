@@ -66,6 +66,8 @@ const logExporting = ref(false)
 const logLevel = ref('')
 const logStart = ref<number | null>(null)
 const logEnd = ref<number | null>(null)
+const logSource = ref('')
+const logSourceOptions = ref<string[]>([])
 const logPage = ref(1)
 const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pages: number }>({
   results: [],
@@ -90,7 +92,12 @@ const logColumns: DataTableColumns<LogEntry> = [
     width: 80,
     render: (row) => h(NTag, { size: 'small', bordered: false, type: logLevelTagType[row.level] ?? 'default' }, { default: () => row.level }),
   },
-  { title: '来源', key: 'name', width: 120 },
+  {
+    title: '来源',
+    key: 'source',
+    width: 160,
+    render: (row) => row.source ?? row.name,
+  },
   {
     title: '消息',
     key: 'message',
@@ -111,6 +118,16 @@ function openLogs() {
   showLogs.value = true
   logPage.value = 1
   fetchLogs()
+  void loadLogSources()
+}
+
+async function loadLogSources() {
+  try {
+    const data = await api.logSources()
+    logSourceOptions.value = data.sources
+  } catch {
+    /* 401 由 client 统一跳转 */
+  }
 }
 
 async function fetchLogs() {
@@ -120,6 +137,7 @@ async function fetchLogs() {
       level: logLevel.value || undefined,
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
+      source: logSource.value || undefined,
       page: logPage.value,
       page_size: 100,
     })
@@ -137,6 +155,7 @@ async function exportLogs() {
       level: logLevel.value || undefined,
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
+      source: logSource.value || undefined,
     })
   } catch (e) {
     message.error(errText(e))
@@ -482,6 +501,14 @@ const columns: DataTableColumns<Target> = [
           v-model:value="logLevel"
           :options="[{ label: '全部', value: '' }, ...logLevelOptions]"
           style="width: 110px"
+        />
+        <n-select
+          v-model:value="logSource"
+          :options="logSourceOptions.map((s) => ({ label: s, value: s }))"
+          placeholder="来源文件/模块"
+          clearable
+          filterable
+          style="width: 170px"
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />

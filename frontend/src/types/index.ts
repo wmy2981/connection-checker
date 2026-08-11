@@ -121,6 +121,7 @@ export interface LogEntry {
   time: string
   level: string
   name: string
+  source: string | null
   message: string
 }
 
@@ -128,6 +129,7 @@ export interface LogQueryParams {
   level?: string
   start?: string
   end?: string
+  source?: string
   page?: number
   page_size?: number
 }

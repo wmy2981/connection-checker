@@ -92,4 +92,5 @@ export const api = {
     request<Paginated<LogEntry>>(`/logs${buildQuery(params as ResultFilterParams)}`),
   exportLogs: (params: LogQueryParams) =>
     downloadExport('/api/v1/logs/export', params as ResultFilterParams, 'logs.log'),
+  logSources: () => request<{ sources: string[] }>('/logs/sources'),
 }

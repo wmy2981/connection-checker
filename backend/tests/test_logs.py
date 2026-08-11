@@ -46,7 +46,8 @@ def test_daily_file_handler_writes_and_rolls(tmp_path, monkeypatch):
     assert files[0].name == "app-2026-08-10.log"
     content = files[0].read_text(encoding="utf-8")
     assert "hello" in content and "world" in content
-    assert "| INFO | app.test | hello" in content
+    assert "| INFO | app.test |" in content  # 新格式含来源段（文件:行号）
+    assert "hello" in content.split("| app.test |", 1)[1]
 
     # 跨日：再次写入应切到新文件，且旧文件内容保留
     current[0] = "2026-08-11 00:00:00"
@@ -111,6 +112,38 @@ def test_logs_export(logged_client):
     assert resp.status_code == 200
     assert "logs-export-me" in resp.text
     assert "attachment" in resp.headers["content-disposition"]
+
+
+def test_logs_api_source_filter(logged_client, no_scheduler):
+    """按来源筛选：文件（新格式行含 source）与模块名（旧格式行兼容）均生效。"""
+    logging.getLogger("app.scheduler").info("logs-source-scheduler")
+    logging.getLogger("app.notifier").warning("logs-source-notifier")
+
+    resp = logged_client.get("/api/v1/logs", params={"source": "test_logs"})
+    assert resp.status_code == 200
+    data = resp.json()
+    hit = [r for r in data["results"] if "logs-source-" in r["message"]]
+    assert hit, "source 筛选未命中新格式行"
+    assert all(r["source"] for r in hit), "新格式行应携带 source 字段"
+    assert all(r["source"].split(":", 1)[0].endswith(".py") for r in hit)
+
+    resp = logged_client.get("/api/v1/logs", params={"source": "app.scheduler"})
+    assert resp.status_code == 200
+    assert any(r["name"] == "app.scheduler" for r in resp.json()["results"])
+
+    # 不匹配的来源应返回空
+    resp = logged_client.get("/api/v1/logs", params={"source": "no-such-source"})
+    assert resp.json()["total"] == 0
+
+
+def test_logs_sources_endpoint(logged_client, no_scheduler):
+    """来源枚举接口返回去重后的文件名/模块名。"""
+    logging.getLogger("app.scheduler").warning("logs-sources-probe")
+    resp = logged_client.get("/api/v1/logs/sources")
+    assert resp.status_code == 200
+    sources = resp.json()["sources"]
+    assert any("test_logs" in s for s in sources)
+    assert sources == sorted(sources)  # 去重且有序
 
 
 def test_app_settings_log_level_validation():

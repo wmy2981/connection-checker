@@ -1,11 +1,14 @@
 """ICMP Ping 检查，基于 ping3（纯 Python，跨平台）。需要原始套接字权限。"""
 import asyncio
+import logging
 
 import ping3
 from ping3.errors import DestinationUnreachable, HostUnknown, PingError, Timeout
 
 from app.checkers.base import BaseChecker, CheckOutcome
 from app.models import Target
+
+logger = logging.getLogger(__name__)
 
 
 def _jitter_ms(samples: list[float]) -> float:
@@ -43,10 +46,13 @@ class PingChecker(BaseChecker):
             except Timeout:
                 pass
             except HostUnknown:
+                logger.debug("Ping %s: hostname resolution failed", target.ip)
                 return CheckOutcome("fail", "无法解析主机名")
             except DestinationUnreachable:
+                logger.debug("Ping %s: destination unreachable", target.ip)
                 return CheckOutcome("fail", "目标不可达")
             except PermissionError:
+                logger.debug("Ping %s: no raw socket permission", target.ip)
                 return CheckOutcome(
                     "error", "缺少原始套接字权限（容器需 CAP_NET_RAW）"
                 )
@@ -54,15 +60,37 @@ class PingChecker(BaseChecker):
                 last_error = str(e)
 
         if last_error and not samples:
+            logger.debug("Ping %s: error=%s", target.ip, last_error)
             return CheckOutcome("error", f"ping 失败: {last_error}")
 
         sent = self.count
         received = len(samples)
         loss_pct = (sent - received) / sent * 100
         if received == 0:
+            logger.debug(
+                "Ping %s: timeout, sent=%d received=%d loss=%.1f%%",
+                target.ip,
+                sent,
+                received,
+                loss_pct,
+            )
             return CheckOutcome("timeout", f"ping 超时（丢包 {loss_pct:.0f}%）")
 
         avg = sum(samples) / len(samples)
+        logger.debug(
+            "Ping %s: sent=%d received=%d loss=%.1f%% avg=%.1fms min=%.1fms "
+            "max=%.1fms jitter=%.1fms stddev=%.1fms samples=%s",
+            target.ip,
+            sent,
+            received,
+            loss_pct,
+            avg,
+            min(samples),
+            max(samples),
+            _jitter_ms(samples),
+            _stddev_ms(samples),
+            [round(s, 1) for s in samples],
+        )
         extra = {
             "packet_loss_pct": round(loss_pct, 1),
             "min_ms": round(min(samples), 1),
