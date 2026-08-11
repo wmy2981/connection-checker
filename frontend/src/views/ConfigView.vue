@@ -85,7 +85,7 @@ watch(showLogs, async (v) => {
   if (!v) return
   await nextTick()
   logResizeObserver?.disconnect()
-  const modal = document.querySelector('.n-modal')
+  const modal = document.querySelector<HTMLElement>('.n-modal')
   if (modal) {
     logResizeObserver = new ResizeObserver((entries) => {
       if (!modal.style.height) return
