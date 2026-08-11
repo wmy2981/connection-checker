@@ -360,12 +360,12 @@ const columns: DataTableColumns<CheckResult> = [
 
           <n-card title="检查记录" size="small">
             <n-space align="center" wrap :size="12">
-              <n-select v-model:value="filters.status" :options="statusOptions" style="width: 130px" />
+              <n-select v-model:value="filters.status" :options="statusOptions" style="width: 150px" />
               <n-input
                 v-model:value="filters.ip"
                 placeholder="IP 筛选（如 192.168.*）"
                 clearable
-                style="width: 170px"
+                style="width: 180px"
                 @keyup.enter="applyFilters"
               />
               <n-select
@@ -373,7 +373,7 @@ const columns: DataTableColumns<CheckResult> = [
                 :options="targetOptions"
                 placeholder="目标"
                 clearable
-                style="width: 180px"
+                style="width: 220px"
               />
               <n-date-picker
                 v-model:value="filters.start_at"

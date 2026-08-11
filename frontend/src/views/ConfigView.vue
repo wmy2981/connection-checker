@@ -500,7 +500,7 @@ const columns: DataTableColumns<Target> = [
         <n-select
           v-model:value="logLevel"
           :options="[{ label: '全部', value: '' }, ...logLevelOptions]"
-          style="width: 110px"
+          style="width: 130px"
         />
         <n-select
           v-model:value="logSource"
@@ -508,7 +508,7 @@ const columns: DataTableColumns<Target> = [
           placeholder="来源文件/模块"
           clearable
           filterable
-          style="width: 170px"
+          style="width: 200px"
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
