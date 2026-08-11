@@ -193,13 +193,12 @@ def main() -> None:
         else:
             action = "release"
     elif branch == "dev":
-        if not is_prerelease(version):
-            fail(
-                f"dev 分支只接受预发行版本（x.y.z.alpha.n / x.y.z.beta.n），"
-                f"当前 {version} 是正式版号"
-            )
         if last is None or cur > last:
-            action = "prerelease"
+            if is_prerelease(version):
+                action = "prerelease"
+            else:
+                # dev 上正式版号 = 即将推送正式版（由 main 发版），此处跳过发版
+                action = "skip"
         elif cur == last:
             action = "skip"
         else:
