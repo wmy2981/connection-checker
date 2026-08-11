@@ -138,6 +138,9 @@ function submit() {
       aria-modal="true"
     >
       <n-form label-placement="left" label-width="90">
+        <n-form-item v-if="target" label="目标 ID">
+          <n-input :value="target.id" readonly />
+        </n-form-item>
         <n-form-item label="名称">
           <n-input v-model:value="form.name" placeholder="可选，便于识别" />
         </n-form-item>
