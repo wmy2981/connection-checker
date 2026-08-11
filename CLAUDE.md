@@ -23,9 +23,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 日志系统
 
 - 日志文件：`data/logs/app-YYYY-MM-DD.log`，按本地时区（`datetime.now().astimezone()`，容器 TZ 生效）每天轮转，保留 30 天；同时输出控制台
-- 级别存 `config.json` 的 `app.log_level`（DEBUG/INFO/WARN/ERROR，默认 INFO），watchdog 检测到配置变更时热更新
-- 查看/导出：`GET /api/v1/logs`（参数 level=最低级别、start/end=本地时间 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM:SS、page/page_size，倒序分页，traceback 续行合并）、`GET /api/v1/logs/export`（导出 .log 文本）
-- **运行时日志消息必须英文**（用户要求），代码注释/docstring 中文不受限；前端配置页有「日志管理」弹窗与「日志等级」设置
+- 行格式：`时间 | 级别 | logger名 | 文件:行号 | 消息`（`%(filename)s:%(lineno)d`，精细到产生日志的 Python 文件）；旧版无来源段的 4 段行解析时兼容（source 为 null）
+- 级别存 `config.json` 的 `app.log_level`（DEBUG/INFO/WARN/ERROR，默认 INFO），watchdog 检测到配置变更时热更新；检查器（ping/http/port/dns）在 DEBUG 级别记录每次检查细节（丢包率、状态码、解析结果、连接耗时等）
+- 查看/导出：`GET /api/v1/logs`（参数 level=最低级别、start/end=本地时间 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM:SS、source=来源筛选（文件名如 scheduler.py 或模块名如 app.scheduler，子串匹配、大小写不敏感）、page/page_size，倒序分页，traceback 续行合并）、`GET /api/v1/logs/export`（导出 .log 文本）、`GET /api/v1/logs/sources`（日志中出现过的来源去重枚举，供前端筛选下拉）
+- **运行时日志消息必须英文**（用户要求），代码注释/docstring 中文不受限；前端配置页有「日志管理」弹窗（级别/来源/时间筛选，弹窗可拖拽调整大小，`resize: both`）与「日志等级」设置
 
 ## 发版雷区
 
@@ -35,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 三个拆分的工作流：`.github/workflows/ci.yml`（test）、`build.yml`（镜像构建，main→latest、dev→dev）、`release.yml`（发版），以及 `[skip ci]` 防循环机制（发版 commit 回推 main 时避免重新触发 CI）
 - `release-templates/` 自定义发行说明模板（PSR v10 运行时模板 `data/templates/conventional/md/` 的副本，删掉了许可说明行与 Detailed Changes 行；改动模板后建议本地用 jinja2 验证）
 - `backend/app/main.py` 的 `_mount_frontend` SPA 静态托管逻辑
-- `backend/app/config.py` 中 `CONNECTCHECKER_` 环境变量语义：`ACCESS_CODE`（留空=免登录）、`JWT_*`、`APP_PORT`、`DATA_DIR`、`COOKIE_SECURE`、`HTTP_SUCCESS_CODES`；检查参数（`RESULT_MAX_RECORDS`/`PING_COUNT`/`CONNECT_TIMEOUT`/`HTTP_TIMEOUT`）已在 config.json 的 `app` 节
+- `backend/app/config.py` 中 `CONNECTCHECKER_` 环境变量语义：`ACCESS_CODE`（留空=免登录）、`JWT_*`、`APP_PORT`、`DATA_DIR`、`COOKIE_SECURE`、`HTTP_SUCCESS_CODES`；检查参数（`RESULT_MAX_RECORDS`/`PING_COUNT`/`CONNECT_TIMEOUT`/`HTTP_TIMEOUT`）与 `STATS_WINDOW`（仪表盘统计近 N 次，默认 50）在 config.json 的 `app` 节
 - `/api/v1/auth/me` 端点（Docker HEALTHCHECK 依赖它；免认证模式恒返回 authenticated=true）
 
 ## 提交流程
@@ -54,5 +55,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **更新目标禁止 `model_copy(update=dict)`**：它不重新验证嵌套模型，`time_ranges` 会变成 dict，调度循环 `is_time_in_ranges` 抛 AttributeError 使定时任务**静默死亡**（2026-08 生产事故：用户编辑目标后全部定时检查停止 23 小时且无日志）。必须 `Target.model_validate({**existing.model_dump(), **payload.model_dump(exclude_unset=True)})` 整体重验证
 - **不要 `await` 同步方法**：如 `ResultStore.resize` 是同步方法，`await resize(...)` 在 Python 3.12 抛 TypeError 杀死 config watchdog（配置热加载失效）。同步方法直接调用
 - **naive-ui 组件必须显式 import**：模板用了 `<n-layout>`/`<n-layout-header>`/`<n-layout-content>` 等但漏 import 时，Vue 渲染成自定义元素、布局错乱且仅 console 报 warning（曾因此布局崩溃）
+- **naive-ui n-select 的 v-model 初始值禁用 `''`**：空字符串被当作"有选中值"，导致不显示 placeholder 且误显示清除叉号（2026-08 bug：仪表盘目标名称筛选框）。初始/重置用 `null`（clear 事件 emit 的也是 null）
 - 调度任务异常退出不会自动续跑：`_run_loop` 循环体已包 try/except（单次异常不杀任务），任务意外死亡后 `reconcile()` 会检测 `task.done()` 并重建（打 warning 日志）；手动检查（`manual_run`）不经过 `is_time_in_ranges`，与定时检查路径不同
 - 前端主题三模式（跟随系统/浅色/深色）由 `useDark.ts` 管理，选择存 `localStorage` 的 `cc-theme-mode`（默认跟随系统），`ThemeToggle.vue` 下拉切换；所有页面共用该组件
