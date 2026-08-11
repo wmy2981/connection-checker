@@ -46,10 +46,10 @@ const loading = ref(false)
 const running = ref(false)
 
 const filters = reactive({
-  status: 'all',
+  status: [] as string[],
   ip: '',
-  target_name: null as string | null,
-  target_id: null as string | null,
+  target_name: [] as string[],
+  target_id: [] as string[],
   start_at: null as number | null,
   end_at: null as number | null,
 })
@@ -61,22 +61,27 @@ function toIsoTs(ts: number | null): string | undefined {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-const targetNameOptions = computed(() => {
-  const names = stats.value?.target_status
-    .map((t) => t.name)
-    .filter((n): n is string => !!n)
-  return [...new Set(names ?? [])].map((n) => ({ label: n, value: n }))
-})
+// 多选值可能是数组或 null（naive-ui clear 时 emit null）
+function multi(v: unknown): string | undefined {
+  return Array.isArray(v) && v.length ? v.join(',') : undefined
+}
 
-const targetOptions = computed(() =>
+// 名称（地址）筛选：无名称的目标用 IP 作为值，后端按名称或 IP 匹配
+const targetNameOptions = computed(() =>
   (stats.value?.target_status ?? []).map((t) => ({
     label: t.name ? `${t.name} (${t.ip})` : t.ip,
+    value: t.name ?? t.ip,
+  })),
+)
+
+const targetIdOptions = computed(() =>
+  (stats.value?.target_status ?? []).map((t) => ({
+    label: t.target_id,
     value: t.target_id,
   })),
 )
 
 const statusOptions = [
-  { label: '全部状态', value: 'all' },
   { label: '成功', value: 'success' },
   { label: '失败', value: 'fail' },
   { label: '超时', value: 'timeout' },
@@ -123,10 +128,10 @@ async function fetchResults() {
   loading.value = true
   try {
     const params: ResultFilterParams = {
-      status: filters.status,
+      status: multi(filters.status),
       ip: filters.ip,
-      target_name: filters.target_name ?? undefined,
-      target_id: filters.target_id ?? undefined,
+      target_name: multi(filters.target_name),
+      target_id: multi(filters.target_id),
       start_at: toIsoTs(filters.start_at),
       end_at: toIsoTs(filters.end_at),
       page: page.value,
@@ -161,10 +166,10 @@ const exportOptions = [
 
 function onExportSelect(key: string) {
   const params: ResultFilterParams = {
-    status: filters.status,
+    status: multi(filters.status),
     ip: filters.ip,
-    target_name: filters.target_name ?? undefined,
-    target_id: filters.target_id ?? undefined,
+    target_name: multi(filters.target_name),
+    target_id: multi(filters.target_id),
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
   }
@@ -172,17 +177,17 @@ function onExportSelect(key: string) {
 }
 
 function resetFilters() {
-  filters.status = 'all'
+  filters.status = []
   filters.ip = ''
-  filters.target_name = null
-  filters.target_id = null
+  filters.target_name = []
+  filters.target_id = []
   filters.start_at = null
   filters.end_at = null
   applyFilters()
 }
 
 function filterByTarget(targetId: string) {
-  filters.target_id = targetId
+  filters.target_id = [targetId]
   applyFilters()
 }
 
@@ -371,27 +376,38 @@ const columns: DataTableColumns<CheckResult> = [
 
           <n-card title="检查记录" size="small">
             <n-space align="center" wrap :size="12">
-              <n-select v-model:value="filters.status" :options="statusOptions" style="width: 130px" />
+              <n-select
+                v-model:value="filters.status"
+                :options="statusOptions"
+                multiple
+                clearable
+                placeholder="状态"
+                style="width: 150px"
+              />
               <n-input
                 v-model:value="filters.ip"
                 placeholder="IP 筛选（如 192.168.*）"
                 clearable
-                style="width: 170px"
-                @keyup.enter="applyFilters"
-              />
-              <n-select
-                v-model:value="filters.target_id"
-                :options="targetOptions"
-                placeholder="目标"
-                clearable
                 style="width: 180px"
+                @keyup.enter="applyFilters"
               />
               <n-select
                 v-model:value="filters.target_name"
                 :options="targetNameOptions"
-                placeholder="目标名称"
+                multiple
                 clearable
-                style="width: 150px"
+                placeholder="目标名称/地址"
+                :menu-props="{ class: 'wide-popup' }"
+                style="width: 240px"
+              />
+              <n-select
+                v-model:value="filters.target_id"
+                :options="targetIdOptions"
+                multiple
+                clearable
+                placeholder="目标 ID"
+                :menu-props="{ class: 'wide-popup' }"
+                style="width: 240px"
               />
               <n-date-picker
                 v-model:value="filters.start_at"

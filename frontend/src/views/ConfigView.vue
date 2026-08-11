@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue'
+import { h, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -63,17 +63,37 @@ const logLevelOptions = [
 const showLogs = ref(false)
 const logLoading = ref(false)
 const logExporting = ref(false)
-const logLevel = ref('')
+const logLevel = ref<string[]>([])
 const logStart = ref<number | null>(null)
 const logEnd = ref<number | null>(null)
-const logSource = ref('')
+const logSource = ref<string[]>([])
 const logSourceOptions = ref<string[]>([])
 const logPage = ref(1)
+const logTableMaxHeight = ref(420)
 const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pages: number }>({
   results: [],
   total: 0,
   page_size: 100,
   pages: 0,
+})
+
+// 弹窗可拖拽调整大小：拖拽会给 modal 设置内联高度，此时用 ResizeObserver 联动
+// 表格高度（减去筛选区/分页区等固定部分）。modal 高度 auto（内容驱动）时不联动，
+// 否则表格高度反作用于内容形成正反馈循环。
+let logResizeObserver: ResizeObserver | null = null
+watch(showLogs, async (v) => {
+  if (!v) return
+  await nextTick()
+  logResizeObserver?.disconnect()
+  const modal = document.querySelector<HTMLElement>('.n-modal')
+  if (modal) {
+    logResizeObserver = new ResizeObserver((entries) => {
+      if (!modal.style.height) return
+      const h = entries[0].contentRect.height
+      logTableMaxHeight.value = Math.max(180, Math.round(h - 210))
+    })
+    logResizeObserver.observe(modal)
+  }
 })
 
 const logLevelTagType: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
@@ -121,6 +141,15 @@ function openLogs() {
   void loadLogSources()
 }
 
+function resetLogFilters() {
+  logLevel.value = []
+  logSource.value = []
+  logStart.value = null
+  logEnd.value = null
+  logPage.value = 1
+  fetchLogs()
+}
+
 async function loadLogSources() {
   try {
     const data = await api.logSources()
@@ -134,10 +163,10 @@ async function fetchLogs() {
   logLoading.value = true
   try {
     logData.value = await api.queryLogs({
-      level: logLevel.value || undefined,
+      level: multi(logLevel.value),
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
-      source: logSource.value || undefined,
+      source: multi(logSource.value),
       page: logPage.value,
       page_size: 100,
     })
@@ -152,10 +181,10 @@ async function exportLogs() {
   logExporting.value = true
   try {
     await api.exportLogs({
-      level: logLevel.value || undefined,
+      level: multi(logLevel.value),
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
-      source: logSource.value || undefined,
+      source: multi(logSource.value),
     })
   } catch (e) {
     message.error(errText(e))
@@ -166,6 +195,11 @@ async function exportLogs() {
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
+}
+
+// 多选值可能是数组或 null（naive-ui clear 时 emit null）
+function multi(v: unknown): string | undefined {
+  return Array.isArray(v) && v.length ? v.join(',') : undefined
 }
 
 async function load() {
@@ -499,27 +533,33 @@ const columns: DataTableColumns<Target> = [
         <span class="label">最低级别</span>
         <n-select
           v-model:value="logLevel"
-          :options="[{ label: '全部', value: '' }, ...logLevelOptions]"
-          style="width: 110px"
+          :options="logLevelOptions"
+          multiple
+          clearable
+          placeholder="级别"
+          style="width: 150px"
         />
         <n-select
           v-model:value="logSource"
           :options="logSourceOptions.map((s) => ({ label: s, value: s }))"
           placeholder="来源文件/模块"
+          multiple
           clearable
           filterable
-          style="width: 170px"
+          :menu-props="{ class: 'wide-popup' }"
+          style="width: 240px"
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
         <n-button size="small" type="primary" :loading="logLoading" @click="fetchLogs">查询</n-button>
+        <n-button size="small" quaternary @click="resetLogFilters">重置</n-button>
         <n-button size="small" :loading="logExporting" @click="exportLogs">导出</n-button>
       </n-space>
       <n-data-table
         :columns="logColumns"
         :data="logData.results"
         :loading="logLoading"
-        :max-height="420"
+        :max-height="logTableMaxHeight"
         size="small"
       />
       <n-space align="center" justify="space-between" :size="12">

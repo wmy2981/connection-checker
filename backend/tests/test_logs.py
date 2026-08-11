@@ -63,15 +63,23 @@ def test_logs_api_level_filter(logged_client, no_scheduler):
     logging.getLogger("app.scheduler").warning("logs-test-warn")
     logging.getLogger("app.scheduler").error("logs-test-error")
 
+    # 多选精确集合匹配；WARN 归一为 WARNING
     resp = logged_client.get("/api/v1/logs", params={"level": "WARN"})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["total"] >= 2
-    levels = {r["level"] for r in data["results"]}
-    assert "INFO" not in levels
-    assert "WARNING" in levels and "ERROR" in levels
+    assert data["total"] == 1
+    assert data["results"][0]["level"] == "WARNING"
 
-    resp = logged_client.get("/api/v1/logs", params={"level": "DEBUG"})
+    # 多选集合：WARN,ERROR 只含这两个级别
+    resp = logged_client.get("/api/v1/logs", params={"level": "WARN,ERROR"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 2
+    levels = {r["level"] for r in data["results"] if "logs-test" in r["message"]}
+    assert levels == {"WARNING", "ERROR"}
+
+    # 全级别多选应包含 WARN,ERROR 的所有条目
+    resp = logged_client.get("/api/v1/logs", params={"level": "DEBUG,INFO,WARN,ERROR"})
     assert resp.json()["total"] >= data["total"]
 
 

@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -38,11 +40,14 @@ def test_me_unauthenticated(client: TestClient):
 
 
 def test_meta_public(client: TestClient):
-    """meta 端点无需登录，返回容器时区名称。"""
+    """meta 端点无需登录，返回容器时区名称与原始版本号。"""
     resp = client.get("/api/v1/meta")
     assert resp.status_code == 200
     tz = resp.json()["tz"]
     assert tz and "/" in tz or tz in ("UTC",)
+    # 版本号保持 pyproject 原始形式（x.y.z / x.y.z.alpha.n / x.y.z.beta.n），非 PEP 440 归一化
+    version = resp.json()["version"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:\.(?:alpha|beta)\.\d+)?", version)
 
 
 def test_login_ok_and_me(client: TestClient):
@@ -386,6 +391,29 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     assert stats["last_total_checks"] == 1
     assert stats["last_fail"] == 1
     assert stats["target_status"][0]["last_status"] == "fail"
+
+
+def test_results_multi_value_filters(logged_client, fake_checker, no_scheduler):
+    """status / target_id 支持逗号分隔多值筛选（前端多选）。"""
+    fake_checker(status="timeout", message="slow")
+    logged_client.post("/api/v1/targets", json=_payload(name="mv-1", ip="8.8.8.1"))
+    logged_client.post("/api/v1/checks/run", json={})
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload(name="mv-2", ip="8.8.8.2"))
+    logged_client.post("/api/v1/checks/run", json={})
+
+    # 第一次 run 1 条 timeout；第二次 run 全部目标（timeout + success）共 3 条
+    data = logged_client.get("/api/v1/results", params={"status": "timeout,success"}).json()
+    assert data["total"] == 3
+    data = logged_client.get("/api/v1/results", params={"status": "success"}).json()
+    assert data["total"] == 2
+
+    targets = logged_client.get("/api/v1/targets").json()
+    t1, t2 = targets[0]["id"], targets[1]["id"]
+    data = logged_client.get(
+        "/api/v1/results", params={"target_id": f"{t1},{t2}"}
+    ).json()
+    assert data["total"] == 3
 
 
 def test_stats_summary_respects_stats_window(

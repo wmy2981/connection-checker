@@ -97,17 +97,26 @@ def _filtered(
     end: str | None,
     source: str | None = None,
 ):
-    min_level = _LEVELS.get((level or "INFO").upper(), 20)
+    # level / source 支持逗号分隔多值（前端多选）：级别精确集合，来源 OR 子串匹配
+    # 文件里级别为标准名（WARNING），前端选项用短写 WARN，归一后再比较
+    def _norm_level(v: str) -> str:
+        return "WARNING" if v == "WARN" else v
+
+    levels = (
+        {_norm_level(s.upper()) for s in (level or "").split(",") if s.strip()}
+        if level
+        else None
+    )
+    srcs = [s.strip().lower() for s in source.split(",") if s.strip()] if source else None
     start_dt = _normalize_ts(start) if start else None
     end_dt = _normalize_ts(end) if end else None
-    src = source.strip().lower() if source else None
     for entry in _entries(request):
-        if _LEVELS.get(entry["level"], 0) < min_level:
+        if levels and _norm_level(entry["level"].upper()) not in levels:
             continue
-        if src:
+        if srcs:
             # 同时匹配来源（文件:行号）与模块名，子串、大小写不敏感
             origin = f"{entry['source'] or ''} {entry['name']}".lower()
-            if src not in origin:
+            if not any(s in origin for s in srcs):
                 continue
         ts = _parse_ts(entry["time"])
         if start_dt is not None and ts < start_dt:
@@ -131,14 +140,16 @@ async def log_sources(request: Request) -> dict:
 @router.get("")
 async def list_logs(
     request: Request,
-    level: str | None = Query(default=None, description="最低级别：DEBUG/INFO/WARN/ERROR"),
+    level: str | None = Query(
+        default=None, description="级别筛选，逗号分隔多值（如 DEBUG,WARN），精确匹配"
+    ),
     start: str | None = Query(
         default=None, description="起始时间 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM:SS（本地时间）"
     ),
     end: str | None = Query(default=None, description="结束时间，格式同上"),
     source: str | None = Query(
         default=None,
-        description="来源筛选：文件名（如 scheduler.py）或模块名（如 app.scheduler），子串匹配",
+        description="来源筛选，逗号分隔多值（OR）：文件名或模块名，子串匹配",
     ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
@@ -159,10 +170,10 @@ async def list_logs(
 @router.get("/export")
 async def export_logs(
     request: Request,
-    level: str | None = Query(default=None, description="最低级别：DEBUG/INFO/WARN/ERROR"),
+    level: str | None = Query(default=None, description="级别筛选，逗号分隔多值，格式同列表接口"),
     start: str | None = Query(default=None, description="起始时间，格式同列表接口"),
     end: str | None = Query(default=None, description="结束时间，格式同列表接口"),
-    source: str | None = Query(default=None, description="来源筛选，格式同列表接口"),
+    source: str | None = Query(default=None, description="来源筛选，逗号分隔多值，格式同列表接口"),
 ) -> PlainTextResponse:
     lines = []
     for entry in _filtered(request, level, start, end, source):
