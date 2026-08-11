@@ -1,10 +1,13 @@
 """TCP 端口连通性检查，基于 asyncio.open_connection。"""
 import asyncio
+import logging
 import time
 from typing import Any
 
 from app.checkers.base import BaseChecker, CheckOutcome
 from app.models import Target
+
+logger = logging.getLogger(__name__)
 
 
 def _conn_info(writer: asyncio.StreamWriter) -> dict[str, Any]:
@@ -31,15 +34,27 @@ class PortChecker(BaseChecker):
                 asyncio.open_connection(target.ip, port), timeout=self.timeout
             )
         except (asyncio.TimeoutError, TimeoutError):  # noqa: UP024
+            logger.debug("Port %s:%d: connect timeout after %.1fs", target.ip, port, self.timeout)
             return CheckOutcome("timeout", f"端口 {port} 连接超时")
         except OSError as e:
+            logger.debug("Port %s:%d: connect failed: %s", target.ip, port, e.strerror or e)
             return CheckOutcome("fail", f"端口 {port} 连接失败: {e.strerror or e}")
         except Exception as e:  # noqa: BLE001
+            logger.debug("Port %s:%d: error=%s", target.ip, port, e)
             return CheckOutcome("error", f"端口 {port} 检查出错: {e}")
 
         elapsed = (time.monotonic() - started) * 1000
         extra = _conn_info(writer)
         extra["port"] = port
+        remote = extra.get("remote_ip")
+        logger.debug(
+            "Port %s:%d: connected in %.1fms remote=%s:%s",
+            target.ip,
+            port,
+            elapsed,
+            remote or "?",
+            extra.get("remote_port", "?"),
+        )
         writer.close()
         try:
             await writer.wait_closed()

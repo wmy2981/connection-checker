@@ -47,6 +47,7 @@ const appSettings = ref<AppSettings>({
   ping_count: 4,
   connect_timeout: 3,
   http_timeout: 5,
+  stats_window: 50,
   log_level: 'INFO',
 })
 const appSaving = ref(false)
@@ -65,6 +66,8 @@ const logExporting = ref(false)
 const logLevel = ref('')
 const logStart = ref<number | null>(null)
 const logEnd = ref<number | null>(null)
+const logSource = ref('')
+const logSourceOptions = ref<string[]>([])
 const logPage = ref(1)
 const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pages: number }>({
   results: [],
@@ -89,7 +92,12 @@ const logColumns: DataTableColumns<LogEntry> = [
     width: 80,
     render: (row) => h(NTag, { size: 'small', bordered: false, type: logLevelTagType[row.level] ?? 'default' }, { default: () => row.level }),
   },
-  { title: '来源', key: 'name', width: 120 },
+  {
+    title: '来源',
+    key: 'source',
+    width: 160,
+    render: (row) => row.source ?? row.name,
+  },
   {
     title: '消息',
     key: 'message',
@@ -110,6 +118,16 @@ function openLogs() {
   showLogs.value = true
   logPage.value = 1
   fetchLogs()
+  void loadLogSources()
+}
+
+async function loadLogSources() {
+  try {
+    const data = await api.logSources()
+    logSourceOptions.value = data.sources
+  } catch {
+    /* 401 由 client 统一跳转 */
+  }
 }
 
 async function fetchLogs() {
@@ -119,6 +137,7 @@ async function fetchLogs() {
       level: logLevel.value || undefined,
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
+      source: logSource.value || undefined,
       page: logPage.value,
       page_size: 100,
     })
@@ -136,6 +155,7 @@ async function exportLogs() {
       level: logLevel.value || undefined,
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
+      source: logSource.value || undefined,
     })
   } catch (e) {
     message.error(errText(e))
@@ -411,6 +431,11 @@ const columns: DataTableColumns<Target> = [
               <span class="hint">配置存于 config.json，外部编辑 5 秒内自动生效</span>
             </n-space>
             <n-space align="center" :size="12" wrap>
+              <span class="label">统计窗口(次)</span>
+              <n-input-number v-model:value="appSettings.stats_window" :min="10" :max="10000" style="width: 180px" />
+              <span class="hint">仪表盘「成功/失败/超时/错误」统计的近 N 次检查记录</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
               <span class="label">日志等级</span>
               <n-select
                 v-model:value="appSettings.log_level"
@@ -447,6 +472,10 @@ const columns: DataTableColumns<Target> = [
             </n-space>
           </n-space>
           </n-card>
+
+          <div class="api-docs-link">
+            <a href="/docs" target="_blank" rel="noopener noreferrer">查看 API 文档（/docs）</a>
+          </div>
         </n-space>
       </div>
     </n-layout-content>
@@ -463,7 +492,7 @@ const columns: DataTableColumns<Target> = [
     v-model:show="showLogs"
     preset="card"
     title="日志管理"
-    style="width: 900px; max-width: 96vw"
+    style="width: 900px; max-width: 96vw; resize: both; overflow: auto"
   >
     <n-space vertical :size="12">
       <n-space align="center" :size="12" wrap>
@@ -472,6 +501,14 @@ const columns: DataTableColumns<Target> = [
           v-model:value="logLevel"
           :options="[{ label: '全部', value: '' }, ...logLevelOptions]"
           style="width: 110px"
+        />
+        <n-select
+          v-model:value="logSource"
+          :options="logSourceOptions.map((s) => ({ label: s, value: s }))"
+          placeholder="来源文件/模块"
+          clearable
+          filterable
+          style="width: 170px"
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
@@ -534,6 +571,18 @@ const columns: DataTableColumns<Target> = [
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
+}
+.api-docs-link {
+  text-align: center;
+  font-size: 13px;
+}
+.api-docs-link a {
+  color: var(--cc-text-3);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.api-docs-link a:hover {
+  color: #0ca30c;
 }
 @media (max-width: 640px) {
   .header-inner {

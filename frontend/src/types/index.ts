@@ -97,6 +97,7 @@ export interface StatsSummary {
   last_fail: number
   last_timeout: number
   last_error: number
+  stats_window: number
   latest_check_at: string | null
   target_status: TargetStatus[]
 }
@@ -112,6 +113,7 @@ export interface AppSettings {
   ping_count: number
   connect_timeout: number
   http_timeout: number
+  stats_window: number
   log_level: string
 }
 
@@ -119,6 +121,7 @@ export interface LogEntry {
   time: string
   level: string
   name: string
+  source: string | null
   message: string
 }
 
@@ -126,6 +129,7 @@ export interface LogQueryParams {
   level?: string
   start?: string
   end?: string
+  source?: string
   page?: number
   page_size?: number
 }

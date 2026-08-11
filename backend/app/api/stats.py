@@ -14,7 +14,8 @@ async def summary(request: Request) -> StatsSummary:
 
     targets = await config_store.list_targets()
     latest = await result_store.latest_per_target([t.id for t in targets])
-    counts = await result_store.count_by_status()
+    app_cfg = await config_store.get_app_settings()
+    counts = await result_store.count_by_status(app_cfg.stats_window)
     recent = await result_store.recent(1)
     latest_check_at = recent[0].checked_at if recent else None
 
@@ -44,6 +45,7 @@ async def summary(request: Request) -> StatsSummary:
         last_fail=counts["fail"],
         last_timeout=counts["timeout"],
         last_error=counts["error"],
+        stats_window=app_cfg.stats_window,
         latest_check_at=latest_check_at,
         target_status=target_status,
     )

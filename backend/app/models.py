@@ -129,6 +129,7 @@ class StatsSummary(BaseModel):
     last_fail: int
     last_timeout: int
     last_error: int
+    stats_window: int  # 上述计数统计的近 N 次检查窗口
     latest_check_at: datetime | None = None
     # 每个目标的最新状态
     target_status: list[dict[str, Any]]
@@ -157,4 +158,5 @@ class AppSettings(BaseModel):
     ping_count: int = Field(default=4, ge=1, le=20)
     connect_timeout: float = Field(default=3.0, gt=0, le=60)  # ping/TCP 超时（秒）
     http_timeout: float = Field(default=5.0, gt=0, le=120)  # HTTP 超时（秒）
+    stats_window: int = Field(default=50, ge=10, le=10_000)  # 仪表盘统计的近 N 次检查
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARN|ERROR)$")
