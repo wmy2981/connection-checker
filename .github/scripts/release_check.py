@@ -72,10 +72,10 @@ def fmt(v: tuple) -> str:
 
 
 def build_notes(version: str, last_release_tag: str) -> None:
-    """发行说明：从最后一个正式版 tag 到 HEAD 的提交列表。"""
+    """发行说明：从最后一个正式版 tag（v 前缀）到 HEAD 的提交列表。"""
     if last_release_tag:
-        range_spec = f"{last_release_tag}..HEAD"
-        header = f"自 {last_release_tag} 以来的提交："
+        range_spec = f"v{last_release_tag}..HEAD"
+        header = f"自 v{last_release_tag} 以来的提交："
     else:
         range_spec = "HEAD"
         header = "全部提交："
@@ -112,6 +112,9 @@ def main() -> None:
 
     tags = all_tags()
     last = max(tags) if tags else None
+    # 发行说明基准：最后一个正式版 tag（排除预发行）
+    last_release = max((t for t in tags if t[3] == 2), default=None)
+    notes_tag = fmt(last_release) if last_release else ""
     cur = parse(version)
 
     if branch == "main":
@@ -125,7 +128,6 @@ def main() -> None:
             fail(f"版本号倒退：{version} < 已发版 v{fmt(last)}")
         else:
             action = "release"
-        notes_tag = fmt(last) if last and not is_prerelease(fmt(last)) else ""
     elif branch == "dev":
         if not is_prerelease(version):
             fail(
@@ -138,7 +140,6 @@ def main() -> None:
             action = "skip"
         else:
             fail(f"版本号倒退：{version} < 已发版 v{fmt(last)}")
-        notes_tag = fmt(last) if last and not is_prerelease(fmt(last)) else ""
     else:
         fail(f"不支持的触发分支 {branch!r}（仅 main / dev）")
 
