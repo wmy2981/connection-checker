@@ -397,6 +397,7 @@ const columns: DataTableColumns<CheckResult> = [
                 multiple
                 clearable
                 placeholder="目标名称/地址"
+                :menu-props="{ class: 'wide-popup' }"
                 style="width: 240px"
               />
               <n-select
@@ -405,6 +406,7 @@ const columns: DataTableColumns<CheckResult> = [
                 multiple
                 clearable
                 placeholder="目标 ID"
+                :menu-props="{ class: 'wide-popup' }"
                 style="width: 240px"
               />
               <n-date-picker

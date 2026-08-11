@@ -517,6 +517,7 @@ const columns: DataTableColumns<Target> = [
           multiple
           clearable
           filterable
+          :menu-props="{ class: 'wide-popup' }"
           style="width: 240px"
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />

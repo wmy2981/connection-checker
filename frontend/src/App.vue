@@ -41,4 +41,8 @@ body {
   margin: 0;
   background: var(--cc-bg);
 }
+/* 下拉弹出列表可宽于触发器，完整显示长选项文本（通过 popup-class 使用） */
+.wide-popup {
+  min-width: 360px;
+}
 </style>
