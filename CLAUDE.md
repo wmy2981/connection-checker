@@ -43,7 +43,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 提交流程
 
 - 遵循 Conventional Commits（`fix:` / `feat:` / BREAKING `!`）
-- 直接提交到 main，无 PR 流程；**手动维护 `pyproject.toml` 的 version 字段**：main 上发正式版（x.y.z，必须大于已发版 tag），dev 上开发用预发行号（x.y.z.alpha.n / x.y.z.beta.n，改动后推送即触发预发行）；版本号与已发版相同/倒退会导致 release 工作流报错
+- **所有改动必须在 dev（或其他分支）上进行，不得直接操作 main**；main 只接收 dev 的合并（`git merge dev` 到 main 后推送）
+- **手动维护 `pyproject.toml` 的 version 字段**：main 上发正式版（x.y.z，必须大于已发版 tag），dev 上开发用预发行号（x.y.z.alpha.n / x.y.z.beta.n，改动后推送即触发预发行）或正式版号（代表即将发正式版，跳过发版）；版本号与已发版相同/倒退会导致 release 工作流报错
 
 ## 关键坑
 
