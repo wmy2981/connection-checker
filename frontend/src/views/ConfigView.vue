@@ -47,6 +47,7 @@ const appSettings = ref<AppSettings>({
   ping_count: 4,
   connect_timeout: 3,
   http_timeout: 5,
+  stats_window: 50,
   log_level: 'INFO',
 })
 const appSaving = ref(false)
@@ -409,6 +410,11 @@ const columns: DataTableColumns<Target> = [
                 style="width: 180px"
               />
               <span class="hint">配置存于 config.json，外部编辑 5 秒内自动生效</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">统计窗口(次)</span>
+              <n-input-number v-model:value="appSettings.stats_window" :min="10" :max="10000" style="width: 180px" />
+              <span class="hint">仪表盘「成功/失败/超时/错误」统计的近 N 次检查记录</span>
             </n-space>
             <n-space align="center" :size="12" wrap>
               <span class="label">日志等级</span>

@@ -388,6 +388,24 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     assert stats["target_status"][0]["last_status"] == "fail"
 
 
+def test_stats_summary_respects_stats_window(
+    logged_client: TestClient, fake_checker, no_scheduler
+):
+    """仪表盘统计窗口读全局配置：修改 app.stats_window 后 summary 同步。"""
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload())
+    logged_client.post("/api/v1/checks/run", json={})
+
+    stats = logged_client.get("/api/v1/stats/summary").json()
+    assert stats["stats_window"] == 50
+
+    cfg = logged_client.get("/api/v1/settings/app").json()
+    cfg["stats_window"] = 10
+    assert logged_client.put("/api/v1/settings/app", json=cfg).status_code == 200
+    stats = logged_client.get("/api/v1/stats/summary").json()
+    assert stats["stats_window"] == 10
+
+
 def test_results_api_datetime_range_filter(logged_client: TestClient, fake_checker, no_scheduler):
     """start_at/end_at 参数须经 API 生效（回归：端点曾未声明参数被静默忽略）。"""
     from datetime import datetime, timedelta
