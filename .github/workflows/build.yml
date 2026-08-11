@@ -2,7 +2,7 @@ name: Build Docker Image
 
 # main 的镜像在 Release workflow 成功之后构建（workflow_run），确保构建时
 # checkout 到含新版本号的 release commit（push 并行触发会导致镜像版本号滞后）；
-# dev 分支无 release 流程，保持 push 直接构建。
+# dev 分支的预发行/跳过由 push 直接构建 dev 镜像。
 on:
   push:
     branches: [dev]
