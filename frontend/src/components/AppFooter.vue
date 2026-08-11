@@ -1,6 +1,20 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { NIcon } from 'naive-ui'
 import { LogoGithub } from '@vicons/ionicons5'
+
+import { api } from '@/api'
+
+const version = ref('')
+
+onMounted(async () => {
+  try {
+    const meta = await api.meta()
+    version.value = meta.version
+  } catch {
+    /* 网络失败时隐藏版本号 */
+  }
+})
 </script>
 
 <template>
@@ -11,7 +25,7 @@ import { LogoGithub } from '@vicons/ionicons5'
       rel="noopener noreferrer"
       class="footer-link"
     >
-      <span>Connection Checker</span>
+      <span>Connection Checker{{ version ? ` v${version}` : '' }}</span>
       <n-icon :size="15"><LogoGithub /></n-icon>
     </a>
   </footer>
