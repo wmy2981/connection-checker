@@ -46,10 +46,10 @@ const loading = ref(false)
 const running = ref(false)
 
 const filters = reactive({
-  status: 'all',
+  status: [] as string[],
   ip: '',
-  target_name: null as string | null,
-  target_id: null as string | null,
+  target_name: [] as string[],
+  target_id: [] as string[],
   start_at: null as number | null,
   end_at: null as number | null,
 })
@@ -59,6 +59,11 @@ function toIsoTs(ts: number | null): string | undefined {
   const d = new Date(ts)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+// 多选值可能是数组或 null（naive-ui clear 时 emit null）
+function multi(v: unknown): string | undefined {
+  return Array.isArray(v) && v.length ? v.join(',') : undefined
 }
 
 // 名称（地址）筛选：无名称的目标用 IP 作为值，后端按名称或 IP 匹配
@@ -77,7 +82,6 @@ const targetIdOptions = computed(() =>
 )
 
 const statusOptions = [
-  { label: '全部状态', value: 'all' },
   { label: '成功', value: 'success' },
   { label: '失败', value: 'fail' },
   { label: '超时', value: 'timeout' },
@@ -124,10 +128,10 @@ async function fetchResults() {
   loading.value = true
   try {
     const params: ResultFilterParams = {
-      status: filters.status,
+      status: multi(filters.status),
       ip: filters.ip,
-      target_name: filters.target_name ?? undefined,
-      target_id: filters.target_id ?? undefined,
+      target_name: multi(filters.target_name),
+      target_id: multi(filters.target_id),
       start_at: toIsoTs(filters.start_at),
       end_at: toIsoTs(filters.end_at),
       page: page.value,
@@ -162,10 +166,10 @@ const exportOptions = [
 
 function onExportSelect(key: string) {
   const params: ResultFilterParams = {
-    status: filters.status,
+    status: multi(filters.status),
     ip: filters.ip,
-    target_name: filters.target_name ?? undefined,
-    target_id: filters.target_id ?? undefined,
+    target_name: multi(filters.target_name),
+    target_id: multi(filters.target_id),
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
   }
@@ -173,17 +177,17 @@ function onExportSelect(key: string) {
 }
 
 function resetFilters() {
-  filters.status = 'all'
+  filters.status = []
   filters.ip = ''
-  filters.target_name = null
-  filters.target_id = null
+  filters.target_name = []
+  filters.target_id = []
   filters.start_at = null
   filters.end_at = null
   applyFilters()
 }
 
 function filterByTarget(targetId: string) {
-  filters.target_id = targetId
+  filters.target_id = [targetId]
   applyFilters()
 }
 
@@ -372,7 +376,14 @@ const columns: DataTableColumns<CheckResult> = [
 
           <n-card title="检查记录" size="small">
             <n-space align="center" wrap :size="12">
-              <n-select v-model:value="filters.status" :options="statusOptions" style="width: 150px" />
+              <n-select
+                v-model:value="filters.status"
+                :options="statusOptions"
+                multiple
+                clearable
+                placeholder="状态"
+                style="width: 150px"
+              />
               <n-input
                 v-model:value="filters.ip"
                 placeholder="IP 筛选（如 192.168.*）"
@@ -383,16 +394,18 @@ const columns: DataTableColumns<CheckResult> = [
               <n-select
                 v-model:value="filters.target_name"
                 :options="targetNameOptions"
-                placeholder="目标名称/地址"
+                multiple
                 clearable
-                style="width: 220px"
+                placeholder="目标名称/地址"
+                style="width: 240px"
               />
               <n-select
                 v-model:value="filters.target_id"
                 :options="targetIdOptions"
-                placeholder="目标 ID"
+                multiple
                 clearable
-                style="width: 200px"
+                placeholder="目标 ID"
+                style="width: 240px"
               />
               <n-date-picker
                 v-model:value="filters.start_at"

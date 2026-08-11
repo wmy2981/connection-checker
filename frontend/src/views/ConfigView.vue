@@ -63,10 +63,10 @@ const logLevelOptions = [
 const showLogs = ref(false)
 const logLoading = ref(false)
 const logExporting = ref(false)
-const logLevel = ref('')
+const logLevel = ref<string[]>([])
 const logStart = ref<number | null>(null)
 const logEnd = ref<number | null>(null)
-const logSource = ref('')
+const logSource = ref<string[]>([])
 const logSourceOptions = ref<string[]>([])
 const logPage = ref(1)
 const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pages: number }>({
@@ -134,10 +134,10 @@ async function fetchLogs() {
   logLoading.value = true
   try {
     logData.value = await api.queryLogs({
-      level: logLevel.value || undefined,
+      level: multi(logLevel.value),
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
-      source: logSource.value || undefined,
+      source: multi(logSource.value),
       page: logPage.value,
       page_size: 100,
     })
@@ -152,10 +152,10 @@ async function exportLogs() {
   logExporting.value = true
   try {
     await api.exportLogs({
-      level: logLevel.value || undefined,
+      level: multi(logLevel.value),
       start: toLogTs(logStart.value),
       end: toLogTs(logEnd.value),
-      source: logSource.value || undefined,
+      source: multi(logSource.value),
     })
   } catch (e) {
     message.error(errText(e))
@@ -166,6 +166,11 @@ async function exportLogs() {
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
+}
+
+// 多选值可能是数组或 null（naive-ui clear 时 emit null）
+function multi(v: unknown): string | undefined {
+  return Array.isArray(v) && v.length ? v.join(',') : undefined
 }
 
 async function load() {
@@ -499,16 +504,20 @@ const columns: DataTableColumns<Target> = [
         <span class="label">最低级别</span>
         <n-select
           v-model:value="logLevel"
-          :options="[{ label: '全部', value: '' }, ...logLevelOptions]"
-          style="width: 130px"
+          :options="logLevelOptions"
+          multiple
+          clearable
+          placeholder="级别"
+          style="width: 150px"
         />
         <n-select
           v-model:value="logSource"
           :options="logSourceOptions.map((s) => ({ label: s, value: s }))"
           placeholder="来源文件/模块"
+          multiple
           clearable
           filterable
-          style="width: 200px"
+          style="width: 240px"
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
