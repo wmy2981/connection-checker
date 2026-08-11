@@ -32,9 +32,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 版本发布由 CI 全自动驱动，**版本号以 `pyproject.toml` 的 `project.version` 为准（手动维护，不再自动 bump）**，以下机制改动需格外谨慎：
 
-- 版本规则（见 `.github/scripts/release_check.py`）：合法正式版 `x.y.z`；合法预发行 `x.y.z.alpha.n` / `x.y.z.beta.n`。main 分支只接受正式版（无变化/倒退报错，前进才发行）；dev 分支只接受预发行（无变化跳过、倒退报错、前进预发行）。比较基准是仓库中最大版本 tag
-- `.github/workflows/release.yml`：main/dev push 触发，脚本产出 version/is_prerelease/skip，然后打 tag `v{version}` + `gh release create`（预发行带 `--prerelease`）；发行说明范围始终是「最后一个正式版 tag → HEAD」
-- 三个拆分的工作流：`.github/workflows/ci.yml`（test）、`build.yml`（镜像构建，main 的 latest 由 Release workflow_run 触发、dev 的 dev 镜像 push 直接构建）、`release.yml`（发版）
+- 版本规则（见 `.github/scripts/release_check.py`）：合法正式版 `x.y.z`；合法预发行 `x.y.z.alpha.n` / `x.y.z.beta.n`。main 分支只接受正式版（无变化/倒退报错，前进才发行）；dev 分支预发行号前进发预发行、无变化跳过、倒退报错；**dev 上写正式版号 = 即将推送正式版（由 main 发版），此时跳过发版**。比较基准是仓库中最大版本 tag
+- `.github/workflows/release.yml`：main/dev push 触发，脚本产出 version/is_prerelease/skip，然后打 tag `v{version}` + `gh release create`（预发行带 `--prerelease`）；发行说明范围始终是「最后一个正式版 tag → HEAD」，格式与旧版一致（`## vX.Y.Z (日期)` + 按 Conventional Commits 类型分组）
+- `.github/workflows/build.yml` 镜像标签：main 推 `v{version}` + `latest`；dev 预发行号推 `v{version}` + `dev`；**dev 上正式版号只推 `dev`**（避免版本标签与 main 正式版冲突）。main 的构建由 Release workflow_run 触发、dev 的镜像 push 直接构建
+- 前端页脚版本号：`/api/v1/meta` 返回 `version`（来自安装包版本，Docker 内即 pyproject 版本），`AppFooter.vue` 显示
 - `backend/app/main.py` 的 `_mount_frontend` SPA 静态托管逻辑
 - `backend/app/config.py` 中 `CONNECTCHECKER_` 环境变量语义：`ACCESS_CODE`（留空=免登录）、`JWT_*`、`APP_PORT`、`DATA_DIR`、`COOKIE_SECURE`、`HTTP_SUCCESS_CODES`；检查参数（`RESULT_MAX_RECORDS`/`PING_COUNT`/`CONNECT_TIMEOUT`/`HTTP_TIMEOUT`）与 `STATS_WINDOW`（仪表盘统计近 N 次，默认 50）在 config.json 的 `app` 节
 - `/api/v1/auth/me` 端点（Docker HEALTHCHECK 依赖它；免认证模式恒返回 authenticated=true）
