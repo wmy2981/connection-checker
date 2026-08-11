@@ -17,10 +17,10 @@ router = APIRouter(prefix="/results", tags=["results"], dependencies=[Depends(re
 @router.get("")
 async def query_results(
     request: Request,
-    status: str | None = Query(default=None),
+    status: str | None = Query(default=None, description="逗号分隔多值，如 success,fail"),
     ip: str | None = Query(default=None),
-    target_name: str | None = Query(default=None),
-    target_id: str | None = Query(default=None),
+    target_name: str | None = Query(default=None, description="匹配目标名称或 IP"),
+    target_id: str | None = Query(default=None, description="逗号分隔多值"),
     date: str | None = Query(default=None),
     time_start: str | None = Query(default=None),
     time_end: str | None = Query(default=None),
@@ -49,7 +49,7 @@ async def query_results(
 def _export_filters(
     status: str | None = Query(default=None),
     ip: str | None = Query(default=None),
-    target_name: str | None = Query(default=None),
+    target_name: str | None = Query(default=None, description="匹配目标名称或 IP"),
     target_id: str | None = Query(default=None),
     date: str | None = Query(default=None),
     time_start: str | None = Query(default=None),

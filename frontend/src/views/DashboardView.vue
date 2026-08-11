@@ -48,6 +48,7 @@ const running = ref(false)
 const filters = reactive({
   status: 'all',
   ip: '',
+  target_name: null as string | null,
   target_id: null as string | null,
   start_at: null as number | null,
   end_at: null as number | null,
@@ -60,9 +61,17 @@ function toIsoTs(ts: number | null): string | undefined {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-const targetOptions = computed(() =>
+// 名称（地址）筛选：无名称的目标用 IP 作为值，后端按名称或 IP 匹配
+const targetNameOptions = computed(() =>
   (stats.value?.target_status ?? []).map((t) => ({
     label: t.name ? `${t.name} (${t.ip})` : t.ip,
+    value: t.name ?? t.ip,
+  })),
+)
+
+const targetIdOptions = computed(() =>
+  (stats.value?.target_status ?? []).map((t) => ({
+    label: t.target_id,
     value: t.target_id,
   })),
 )
@@ -117,6 +126,7 @@ async function fetchResults() {
     const params: ResultFilterParams = {
       status: filters.status,
       ip: filters.ip,
+      target_name: filters.target_name ?? undefined,
       target_id: filters.target_id ?? undefined,
       start_at: toIsoTs(filters.start_at),
       end_at: toIsoTs(filters.end_at),
@@ -154,6 +164,7 @@ function onExportSelect(key: string) {
   const params: ResultFilterParams = {
     status: filters.status,
     ip: filters.ip,
+    target_name: filters.target_name ?? undefined,
     target_id: filters.target_id ?? undefined,
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
@@ -164,6 +175,7 @@ function onExportSelect(key: string) {
 function resetFilters() {
   filters.status = 'all'
   filters.ip = ''
+  filters.target_name = null
   filters.target_id = null
   filters.start_at = null
   filters.end_at = null
@@ -369,11 +381,18 @@ const columns: DataTableColumns<CheckResult> = [
                 @keyup.enter="applyFilters"
               />
               <n-select
-                v-model:value="filters.target_id"
-                :options="targetOptions"
-                placeholder="目标"
+                v-model:value="filters.target_name"
+                :options="targetNameOptions"
+                placeholder="目标名称/地址"
                 clearable
                 style="width: 220px"
+              />
+              <n-select
+                v-model:value="filters.target_id"
+                :options="targetIdOptions"
+                placeholder="目标 ID"
+                clearable
+                style="width: 200px"
               />
               <n-date-picker
                 v-model:value="filters.start_at"

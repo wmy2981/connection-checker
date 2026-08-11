@@ -218,14 +218,20 @@ class ResultStore:
 
     @staticmethod
     def _matches(f: ResultFilter, r: CheckResult) -> bool:
-        if f.status not in (None, "all") and r.status != f.status:
-            return False
+        # status / target_id 支持逗号分隔多值（前端多选）
+        if f.status:
+            statuses = {s for s in f.status.split(",") if s and s != "all"}
+            if statuses and r.status not in statuses:
+                return False
         if f.ip and not ip_matches(f.ip, r.ip):
             return False
-        if f.target_name and r.target_name != f.target_name:
+        # target_name 匹配目标名称或 IP（无名称目标以 IP 作为筛选值）
+        if f.target_name and r.target_name != f.target_name and r.ip != f.target_name:
             return False
-        if f.target_id and r.target_id != f.target_id:
-            return False
+        if f.target_id:
+            ids = {s for s in f.target_id.split(",") if s}
+            if ids and r.target_id not in ids:
+                return False
         if f.date and r.checked_at.astimezone().strftime("%Y-%m-%d") != f.date:
             return False
         if f.time_start and f.time_end:
