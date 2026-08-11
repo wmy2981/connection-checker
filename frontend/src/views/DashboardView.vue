@@ -48,7 +48,6 @@ const running = ref(false)
 const filters = reactive({
   status: 'all',
   ip: '',
-  target_name: null as string | null,
   target_id: null as string | null,
   start_at: null as number | null,
   end_at: null as number | null,
@@ -60,13 +59,6 @@ function toIsoTs(ts: number | null): string | undefined {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
-
-const targetNameOptions = computed(() => {
-  const names = stats.value?.target_status
-    .map((t) => t.name)
-    .filter((n): n is string => !!n)
-  return [...new Set(names ?? [])].map((n) => ({ label: n, value: n }))
-})
 
 const targetOptions = computed(() =>
   (stats.value?.target_status ?? []).map((t) => ({
@@ -125,7 +117,6 @@ async function fetchResults() {
     const params: ResultFilterParams = {
       status: filters.status,
       ip: filters.ip,
-      target_name: filters.target_name ?? undefined,
       target_id: filters.target_id ?? undefined,
       start_at: toIsoTs(filters.start_at),
       end_at: toIsoTs(filters.end_at),
@@ -163,7 +154,6 @@ function onExportSelect(key: string) {
   const params: ResultFilterParams = {
     status: filters.status,
     ip: filters.ip,
-    target_name: filters.target_name ?? undefined,
     target_id: filters.target_id ?? undefined,
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
@@ -174,7 +164,6 @@ function onExportSelect(key: string) {
 function resetFilters() {
   filters.status = 'all'
   filters.ip = ''
-  filters.target_name = null
   filters.target_id = null
   filters.start_at = null
   filters.end_at = null
@@ -385,13 +374,6 @@ const columns: DataTableColumns<CheckResult> = [
                 placeholder="目标"
                 clearable
                 style="width: 180px"
-              />
-              <n-select
-                v-model:value="filters.target_name"
-                :options="targetNameOptions"
-                placeholder="目标名称"
-                clearable
-                style="width: 150px"
               />
               <n-date-picker
                 v-model:value="filters.start_at"
