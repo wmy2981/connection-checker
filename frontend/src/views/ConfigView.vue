@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue'
+import { h, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -69,11 +69,31 @@ const logEnd = ref<number | null>(null)
 const logSource = ref<string[]>([])
 const logSourceOptions = ref<string[]>([])
 const logPage = ref(1)
+const logTableMaxHeight = ref(420)
 const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pages: number }>({
   results: [],
   total: 0,
   page_size: 100,
   pages: 0,
+})
+
+// 弹窗可拖拽调整大小：拖拽会给 modal 设置内联高度，此时用 ResizeObserver 联动
+// 表格高度（减去筛选区/分页区等固定部分）。modal 高度 auto（内容驱动）时不联动，
+// 否则表格高度反作用于内容形成正反馈循环。
+let logResizeObserver: ResizeObserver | null = null
+watch(showLogs, async (v) => {
+  if (!v) return
+  await nextTick()
+  logResizeObserver?.disconnect()
+  const modal = document.querySelector('.n-modal')
+  if (modal) {
+    logResizeObserver = new ResizeObserver((entries) => {
+      if (!modal.style.height) return
+      const h = entries[0].contentRect.height
+      logTableMaxHeight.value = Math.max(180, Math.round(h - 210))
+    })
+    logResizeObserver.observe(modal)
+  }
 })
 
 const logLevelTagType: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
@@ -539,7 +559,7 @@ const columns: DataTableColumns<Target> = [
         :columns="logColumns"
         :data="logData.results"
         :loading="logLoading"
-        :max-height="420"
+        :max-height="logTableMaxHeight"
         size="small"
       />
       <n-space align="center" justify="space-between" :size="12">
