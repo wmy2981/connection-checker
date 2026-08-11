@@ -43,5 +43,5 @@ jobs:
             args+=(--prerelease)
           fi
           gh release create "v${{ steps.check.outputs.version }}" \
-            --title "Connection Checker v${{ steps.check.outputs.version }}" \
+            --title "v${{ steps.check.outputs.version }}" \
             --notes-file .release-notes.md "${args[@]}"

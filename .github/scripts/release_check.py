@@ -71,30 +71,94 @@ def fmt(v: tuple) -> str:
     return f"{major}.{minor}.{patch}.{pre}.{n}"
 
 
+# Conventional Commits 解析与分组（与旧 semantic-release 产出格式一致）
+_COMMIT_RE = re.compile(
+    r"^(?P<type>[a-zA-Z_]+)(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s*(?P<subject>.+)$"
+)
+_GROUPS = [
+    ("Breaking Changes", "breaking"),
+    ("Features", "feat"),
+    ("Bug Fixes", "fix"),
+    ("Documentation", "docs"),
+    ("Performance Improvements", "perf"),
+    ("Refactorings", "refactor"),
+    ("Styles", "style"),
+    ("Testing", "test"),
+    ("Build System", "build"),
+    ("Continuous Integration", "ci"),
+    ("Chores", "chore"),
+]
+
+
+def _repo_slug() -> str:
+    out = subprocess.run(
+        ["git", "remote", "get-url", "origin"], capture_output=True, text=True
+    ).stdout.strip()
+    m = re.search(r"(?:github\.com[:/])([\w.-]+/[\w.-]+?)(?:\.git)?$", out)
+    return m.group(1) if m else "wmy2981/connection-checker"
+
+
 def build_notes(version: str, last_release_tag: str) -> None:
-    """发行说明：从最后一个正式版 tag（v 前缀）到 HEAD 的提交列表。"""
+    """发行说明（与旧版格式一致）：## vX.Y.Z (日期) + 按类型分组提交。
+
+    提交范围：最后一个正式版 tag（v 前缀）到 HEAD；无正式版 tag 时取全部提交。
+    """
     if last_release_tag:
         range_spec = f"v{last_release_tag}..HEAD"
-        header = f"自 v{last_release_tag} 以来的提交："
     else:
         range_spec = "HEAD"
-        header = "全部提交："
     out = subprocess.run(
-        ["git", "log", range_spec, "--pretty=format:%h %s"],
+        ["git", "log", range_spec, "--pretty=format:%H%x09%s"],
         capture_output=True,
         text=True,
     ).stdout
-    commits = [line for line in out.splitlines() if line.strip()]
-    lines = [
-        f"# Connection Checker {version}",
-        "",
-        header,
-        "",
-    ]
-    lines.extend(f"- `{c}`" for c in commits)
-    if not commits:
-        lines.append("- （无提交）")
-    Path(".release-notes.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    repo = _repo_slug()
+
+    grouped: dict[str, list[str]] = {}
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        full_hash, subject = line.split("\t", 1)
+        short = full_hash[:7]
+        link = f"[`{short}`](https://github.com/{repo}/commit/{full_hash})"
+        m = _COMMIT_RE.match(subject)
+        if m:
+            ctype = m.group("type").lower()
+            scope = m.group("scope")
+            breaking = bool(m.group("breaking")) or "BREAKING CHANGE" in subject
+            text = m.group("subject")
+            group = "breaking" if breaking else ctype
+        else:
+            group = "other"
+            text = subject
+        entry = f"- **{scope}**: {text} {link}" if m and scope else f"- {text} {link}"
+        grouped.setdefault(group, []).append(entry)
+
+    today = subprocess.run(
+        ["git", "log", "-1", "--format=%ad", "--date=format:%Y-%m-%d", "HEAD"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    lines = [f"## v{version} ({today})", ""]
+    for group_name, key in _GROUPS:
+        entries = grouped.get(key)
+        if not entries:
+            continue
+        lines.append(f"### {group_name}")
+        lines.append("")
+        lines.extend(entries)
+        lines.append("")
+    others = grouped.get("other")
+    if others:
+        lines.append("### Other")
+        lines.append("")
+        lines.extend(others)
+        lines.append("")
+    if len(lines) <= 2:
+        lines.append("- 无提交")
+        lines.append("")
+    Path(".release-notes.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> None:
