@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -38,11 +40,14 @@ def test_me_unauthenticated(client: TestClient):
 
 
 def test_meta_public(client: TestClient):
-    """meta 端点无需登录，返回容器时区名称。"""
+    """meta 端点无需登录，返回容器时区名称与原始版本号。"""
     resp = client.get("/api/v1/meta")
     assert resp.status_code == 200
     tz = resp.json()["tz"]
     assert tz and "/" in tz or tz in ("UTC",)
+    # 版本号保持 pyproject 原始形式（x.y.z / x.y.z.alpha.n / x.y.z.beta.n），非 PEP 440 归一化
+    version = resp.json()["version"]
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:\.(?:alpha|beta)\.\d+)?", version)
 
 
 def test_login_ok_and_me(client: TestClient):
