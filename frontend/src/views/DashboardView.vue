@@ -48,7 +48,7 @@ const running = ref(false)
 const filters = reactive({
   status: 'all',
   ip: '',
-  target_name: '',
+  target_name: null as string | null,
   target_id: null as string | null,
   start_at: null as number | null,
   end_at: null as number | null,
@@ -125,7 +125,7 @@ async function fetchResults() {
     const params: ResultFilterParams = {
       status: filters.status,
       ip: filters.ip,
-      target_name: filters.target_name,
+      target_name: filters.target_name ?? undefined,
       target_id: filters.target_id ?? undefined,
       start_at: toIsoTs(filters.start_at),
       end_at: toIsoTs(filters.end_at),
@@ -163,7 +163,7 @@ function onExportSelect(key: string) {
   const params: ResultFilterParams = {
     status: filters.status,
     ip: filters.ip,
-    target_name: filters.target_name,
+    target_name: filters.target_name ?? undefined,
     target_id: filters.target_id ?? undefined,
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
@@ -174,7 +174,7 @@ function onExportSelect(key: string) {
 function resetFilters() {
   filters.status = 'all'
   filters.ip = ''
-  filters.target_name = ''
+  filters.target_name = null
   filters.target_id = null
   filters.start_at = null
   filters.end_at = null
