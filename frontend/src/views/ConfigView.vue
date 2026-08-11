@@ -121,6 +121,15 @@ function openLogs() {
   void loadLogSources()
 }
 
+function resetLogFilters() {
+  logLevel.value = []
+  logSource.value = []
+  logStart.value = null
+  logEnd.value = null
+  logPage.value = 1
+  fetchLogs()
+}
+
 async function loadLogSources() {
   try {
     const data = await api.logSources()
@@ -523,6 +532,7 @@ const columns: DataTableColumns<Target> = [
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
         <n-button size="small" type="primary" :loading="logLoading" @click="fetchLogs">查询</n-button>
+        <n-button size="small" quaternary @click="resetLogFilters">重置</n-button>
         <n-button size="small" :loading="logExporting" @click="exportLogs">导出</n-button>
       </n-space>
       <n-data-table
