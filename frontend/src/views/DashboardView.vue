@@ -49,7 +49,7 @@ const filters = reactive({
   status: 'all',
   ip: '',
   target_name: '',
-  target_id: '',
+  target_id: null as string | null,
   start_at: null as number | null,
   end_at: null as number | null,
 })
@@ -67,6 +67,13 @@ const targetNameOptions = computed(() => {
     .filter((n): n is string => !!n)
   return [...new Set(names ?? [])].map((n) => ({ label: n, value: n }))
 })
+
+const targetOptions = computed(() =>
+  (stats.value?.target_status ?? []).map((t) => ({
+    label: t.name ? `${t.name} (${t.ip})` : t.ip,
+    value: t.target_id,
+  })),
+)
 
 const statusOptions = [
   { label: '全部状态', value: 'all' },
@@ -119,7 +126,7 @@ async function fetchResults() {
       status: filters.status,
       ip: filters.ip,
       target_name: filters.target_name,
-      target_id: filters.target_id,
+      target_id: filters.target_id ?? undefined,
       start_at: toIsoTs(filters.start_at),
       end_at: toIsoTs(filters.end_at),
       page: page.value,
@@ -157,7 +164,7 @@ function onExportSelect(key: string) {
     status: filters.status,
     ip: filters.ip,
     target_name: filters.target_name,
-    target_id: filters.target_id,
+    target_id: filters.target_id ?? undefined,
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
   }
@@ -168,7 +175,7 @@ function resetFilters() {
   filters.status = 'all'
   filters.ip = ''
   filters.target_name = ''
-  filters.target_id = ''
+  filters.target_id = null
   filters.start_at = null
   filters.end_at = null
   applyFilters()
@@ -371,6 +378,13 @@ const columns: DataTableColumns<CheckResult> = [
                 clearable
                 style="width: 170px"
                 @keyup.enter="applyFilters"
+              />
+              <n-select
+                v-model:value="filters.target_id"
+                :options="targetOptions"
+                placeholder="目标"
+                clearable
+                style="width: 180px"
               />
               <n-select
                 v-model:value="filters.target_name"
