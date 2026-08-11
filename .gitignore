@@ -28,3 +28,6 @@ data/
 .DS_Store
 Thumbs.db
 *.log
+
+# release workflow 临时生成
+.release-notes.md
