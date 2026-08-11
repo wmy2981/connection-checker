@@ -16,7 +16,11 @@ defineProps<{ stats: StatsSummary | null }>()
       </n-statistic>
     </n-card>
     <n-card size="small">
-      <n-statistic :label="`成功（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_success ?? 0" />
+      <n-statistic :label="`成功（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_success ?? 0">
+        <template #suffix v-if="stats && stats.last_total_checks">
+          <span class="sub">{{ Math.round((stats.last_success / stats.last_total_checks) * 100) }}%</span>
+        </template>
+      </n-statistic>
     </n-card>
     <n-card size="small">
       <n-statistic :label="`失败（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_fail ?? 0">
@@ -26,10 +30,18 @@ defineProps<{ stats: StatsSummary | null }>()
       </n-statistic>
     </n-card>
     <n-card size="small">
-      <n-statistic :label="`超时（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_timeout ?? 0" />
+      <n-statistic :label="`超时（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_timeout ?? 0">
+        <template #suffix v-if="stats && stats.last_total_checks">
+          <span class="sub">{{ Math.round((stats.last_timeout / stats.last_total_checks) * 100) }}%</span>
+        </template>
+      </n-statistic>
     </n-card>
     <n-card size="small">
-      <n-statistic :label="`错误（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_error ?? 0" />
+      <n-statistic :label="`错误（近${stats?.stats_window ?? 50}次）`" :value="stats?.last_error ?? 0">
+        <template #suffix v-if="stats && stats.last_total_checks">
+          <span class="sub">{{ Math.round((stats.last_error / stats.last_total_checks) * 100) }}%</span>
+        </template>
+      </n-statistic>
     </n-card>
   </div>
 </template>

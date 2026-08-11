@@ -415,6 +415,11 @@ def test_results_multi_value_filters(logged_client, fake_checker, no_scheduler):
     ).json()
     assert data["total"] == 3
 
+    # 名称多选：回归（曾因精确匹配单个字符串导致返回空）
+    names = ",".join(t["name"] for t in targets)
+    data = logged_client.get("/api/v1/results", params={"target_name": names}).json()
+    assert data["total"] == 3
+
 
 def test_stats_summary_respects_stats_window(
     logged_client: TestClient, fake_checker, no_scheduler

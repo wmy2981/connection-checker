@@ -225,9 +225,11 @@ class ResultStore:
                 return False
         if f.ip and not ip_matches(f.ip, r.ip):
             return False
-        # target_name 匹配目标名称或 IP（无名称目标以 IP 作为筛选值）
-        if f.target_name and r.target_name != f.target_name and r.ip != f.target_name:
-            return False
+        # target_name 支持逗号分隔多值（前端多选），匹配目标名称或 IP（无名称目标以 IP 作为筛选值）
+        if f.target_name:
+            names = {s for s in f.target_name.split(",") if s}
+            if names and r.target_name not in names and r.ip not in names:
+                return False
         if f.target_id:
             ids = {s for s in f.target_id.split(",") if s}
             if ids and r.target_id not in ids:
