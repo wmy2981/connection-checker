@@ -473,7 +473,7 @@ const columns: DataTableColumns<Target> = [
     v-model:show="showLogs"
     preset="card"
     title="日志管理"
-    style="width: 900px; max-width: 96vw"
+    style="width: 900px; max-width: 96vw; resize: both; overflow: auto"
   >
     <n-space vertical :size="12">
       <n-space align="center" :size="12" wrap>
