@@ -45,17 +45,3 @@ src = ["backend"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-
-[tool.semantic_release]
-version_toml = ["pyproject.toml:project.version"]
-tag_format = "v{version}"
-commit_author = "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
-commit_message = "chore(release): {version} [skip ci]"
-
-[tool.semantic_release.changelog]
-# 自定义发行说明模板：去掉版本号下的许可说明与 Detailed Changes 对比链接行
-template_dir = "release-templates"
-
-
-[tool.semantic_release.branch.dev]
-match = "dev"
