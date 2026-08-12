@@ -1,4 +1,7 @@
-"""应用设置：Webhook 告警配置、全局检查参数与 S3 配置（均存于 config.json）。"""
+"""应用设置：Webhook 告警配置、全局检查参数、S3 配置与 API Token。"""
+import logging
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -6,6 +9,8 @@ from app.auth import require_auth
 from app.models import AppSettings, S3Config, WebhookConfig
 from app.notifier import Notifier
 from app.storage import ConfigStore, SecretsStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_auth)])
 
@@ -92,6 +97,31 @@ async def update_s3_settings(
     await store.update_s3_config(cfg)
     secrets.set_s3_credentials(payload.access_id, payload.access_key)
     return _s3_response(cfg, secrets)
+
+
+@router.get("/api-token")
+async def get_api_token(request: Request) -> dict:
+    """返回当前 API Token 明文（供配置页展示复制）；未设置返回 null。"""
+    secrets_store: SecretsStore = request.app.state.secrets_store
+    return {"token": secrets_store.api_token or None}
+
+
+@router.post("/api-token/generate")
+async def generate_api_token(request: Request) -> dict:
+    """生成新 API Token：旧 token 立即失效。"""
+    secrets_store: SecretsStore = request.app.state.secrets_store
+    token = secrets_store.set_api_token(secrets.token_urlsafe(32))
+    logger.info("API token generated, previous token invalidated")
+    return {"token": token}
+
+
+@router.delete("/api-token")
+async def delete_api_token(request: Request) -> dict:
+    """删除 API Token：外部 API 调用立即禁用。"""
+    secrets_store: SecretsStore = request.app.state.secrets_store
+    secrets_store.set_api_token(None)
+    logger.info("API token deleted, external API access disabled")
+    return {"ok": True}
 
 
 @router.post("/webhook/test")

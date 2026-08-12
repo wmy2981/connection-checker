@@ -581,3 +581,53 @@ def test_check_debug_nodes_logged(logged_client, fake_checker, no_scheduler, cap
     msgs = [r.message for r in caplog.records]
     assert any(m.startswith("Starting check") for m in msgs)
     assert any(m.startswith("Result stored") for m in msgs)
+
+
+def _bearer(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _generate_token(logged_client: TestClient) -> str:
+    # 写方法强制 JSON 内容类型，POST 无 body 也需显式带 JSON
+    resp = logged_client.post("/api/v1/settings/api-token/generate", json={})
+    assert resp.status_code == 200
+    return resp.json()["token"]
+
+
+def test_api_token_flow(logged_client: TestClient):
+    """API Token：生成后 Bearer 可用，重新生成旧 token 失效，删除后禁用。"""
+    assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
+
+    token = _generate_token(logged_client)
+    assert token
+
+    assert logged_client.get("/api/v1/targets", headers=_bearer(token)).status_code == 200
+    assert (
+        logged_client.get("/api/v1/targets", headers=_bearer("wrong")).status_code == 401
+    )
+    assert logged_client.get("/api/v1/targets").status_code == 200  # cookie 仍可用
+
+    secrets_raw = json.loads(
+        (logged_client.app.state.settings.data_dir / "secrets.json").read_text(encoding="utf-8")
+    )
+    assert secrets_raw["api_token"] == token
+
+    new_token = _generate_token(logged_client)
+    assert new_token != token
+    assert logged_client.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
+    assert logged_client.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 200
+
+    assert logged_client.delete("/api/v1/settings/api-token").status_code == 200
+    assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
+    assert logged_client.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 401
+
+
+def test_api_token_requires_json_content_type(logged_client: TestClient):
+    """token 认证路径同样执行 CSRF 415 检查（写方法需 JSON）。"""
+    token = _generate_token(logged_client)
+    resp = logged_client.post(
+        "/api/v1/checks/run",
+        content="{}",
+        headers={**_bearer(token), "content-type": "text/plain"},
+    )
+    assert resp.status_code == 415

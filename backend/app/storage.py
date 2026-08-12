@@ -519,6 +519,7 @@ class SecretsStore:
         self.access_code_hash: str = ""
         self.s3_access_id: str = ""
         self.s3_access_key: str = ""
+        self.api_token: str = ""
         self._load()
 
     def _load(self) -> None:
@@ -530,6 +531,7 @@ class SecretsStore:
             self.access_code_hash = raw.get("access_code_hash", "")
             self.s3_access_id = raw.get("s3_access_id", "")
             self.s3_access_key = raw.get("s3_access_key", "")
+            self.api_token = raw.get("api_token", "")
         except (json.JSONDecodeError, OSError):
             pass
 
@@ -540,6 +542,7 @@ class SecretsStore:
             "access_code_hash": self.access_code_hash,
             "s3_access_id": self.s3_access_id,
             "s3_access_key": self.s3_access_key,
+            "api_token": self.api_token,
         }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -555,3 +558,9 @@ class SecretsStore:
             access_id is not None,
             access_key is not None,
         )
+
+    def set_api_token(self, token: str | None) -> str | None:
+        """设置 API Token 并落盘；None = 清空禁用。返回当前 token（无则 None）。"""
+        self.api_token = token or ""
+        self.save()
+        return self.api_token or None

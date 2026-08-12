@@ -78,6 +78,8 @@ const s3 = ref<S3Config>({
 const s3Credentials = ref<{ access_id: string; access_key: string }>({ access_id: '', access_key: '' })
 const s3Saving = ref(false)
 
+const apiToken = ref<string | null>(null)
+
 const logLevelOptions = [
   { label: 'DEBUG', value: 'DEBUG' },
   { label: 'INFO', value: 'INFO' },
@@ -307,6 +309,43 @@ async function loadS3() {
   }
 }
 
+async function loadApiToken() {
+  try {
+    apiToken.value = (await api.getApiToken()).token
+  } catch {
+    /* 401 由 client 处理 */
+  }
+}
+
+async function regenerateToken() {
+  try {
+    apiToken.value = (await api.generateApiToken()).token
+    message.success('已生成新令牌，旧令牌立即失效')
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
+async function removeToken() {
+  try {
+    await api.deleteApiToken()
+    apiToken.value = null
+    message.success('已删除 API 令牌')
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
+async function copyToken() {
+  if (!apiToken.value) return
+  try {
+    await navigator.clipboard.writeText(apiToken.value)
+    message.success('已复制到剪贴板')
+  } catch {
+    message.error('复制失败')
+  }
+}
+
 async function saveS3() {
   s3Saving.value = true
   try {
@@ -334,6 +373,7 @@ onMounted(() => {
   loadAppSettings()
   loadWebhook()
   loadS3()
+  loadApiToken()
 })
 
 function openCreate() {
@@ -643,6 +683,32 @@ const columns: DataTableColumns<Target> = [
             <n-space align="end" :size="12">
               <span v-if="s3.enabled && !s3.has_credentials" class="hint">尚未配置凭据，S3 功能不可用</span>
               <n-button type="primary" :loading="s3Saving" @click="saveS3">保存 S3 配置</n-button>
+            </n-space>
+          </n-space>
+          </n-card>
+
+          <n-card title="API 访问令牌" size="small">
+          <n-space vertical size="large">
+            <n-space align="center" :size="12" wrap>
+              <span class="label">令牌</span>
+              <n-input v-if="apiToken" :value="apiToken" readonly style="width: 340px" />
+              <span v-else class="hint">未设置 API 令牌，外部 API 调用将被拒绝</span>
+              <n-button v-if="apiToken" size="small" @click="copyToken">复制</n-button>
+              <n-popconfirm v-if="apiToken" :positive-button-props="{ type: 'error' }" @positive-click="removeToken">
+                <template #trigger>
+                  <n-button size="small" type="error" secondary>删除</n-button>
+                </template>
+                删除后外部 API 调用立即失效，确认删除？
+              </n-popconfirm>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <n-popconfirm @positive-click="regenerateToken">
+                <template #trigger>
+                  <n-button size="small" secondary>重新生成</n-button>
+                </template>
+                重新生成后旧令牌立即失效，确认？
+              </n-popconfirm>
+              <span class="hint">外部调用携带请求头 Authorization: Bearer &lt;token&gt;；令牌存于 secrets.json</span>
             </n-space>
           </n-space>
           </n-card>

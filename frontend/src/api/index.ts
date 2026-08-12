@@ -93,6 +93,13 @@ export const api = {
   getS3Config: () => request<S3Config>('/settings/s3'),
   updateS3Config: (cfg: S3ConfigInput) =>
     request<S3Config>('/settings/s3', { method: 'PUT', body: JSON.stringify(cfg) }),
+  getApiToken: () => request<{ token: string | null }>('/settings/api-token'),
+  generateApiToken: () =>
+    request<{ token: string }>('/settings/api-token/generate', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  deleteApiToken: () => request<{ ok: boolean }>('/settings/api-token', { method: 'DELETE' }),
   queryLogs: (params: LogQueryParams) =>
     request<Paginated<LogEntry>>(`/logs${buildQuery(params as ResultFilterParams)}`),
   exportLogs: (params: LogQueryParams) =>

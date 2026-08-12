@@ -96,15 +96,23 @@ def get_security(request: Request) -> Security:
 
 
 def require_auth(request: Request) -> None:
-    """JWT Cookie 校验 + 变更请求要求 JSON 内容类型（CSRF 纵深防御）。
+    """JWT Cookie 或 API Token（Authorization: Bearer）校验 + 写方法要求 JSON（CSRF 纵深防御）。
 
-    未设置访问码时为免认证模式，直接放行。
+    未设置访问码时为免认证模式，直接放行。API Token 存于 secrets.json 的 api_token，
+    生成新 token 后旧 token 立即失效。
     """
     security = get_security(request)
     if not security.auth_enabled:
         return
-    token = request.cookies.get(COOKIE_NAME)
-    if not token or not security.verify_token(token):
+
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        api_token = request.app.state.secrets_store.api_token
+        authed = bool(api_token) and secrets.compare_digest(auth_header[7:], api_token)
+    else:
+        token = request.cookies.get(COOKIE_NAME)
+        authed = bool(token) and security.verify_token(token)
+    if not authed:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未授权访问")
 
     # 带 body 的写方法要求 JSON 内容类型（CSRF 纵深防御）。DELETE 无 body，
