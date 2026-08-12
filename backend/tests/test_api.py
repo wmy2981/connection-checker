@@ -159,6 +159,19 @@ def test_results_export_json(logged_client: TestClient, fake_checker, no_schedul
     assert data[0]["latency_ms"] == 12.3
 
 
+def test_manual_run_concurrent_targets(logged_client: TestClient, fake_checker, no_scheduler):
+    """多个目标手动全部检查：并发执行且全部返回（回归：串行会逐个等待超时）。"""
+    fake_checker(status="success", message="ok", latency_ms=1.0)
+    for i in range(5):
+        logged_client.post("/api/v1/targets", json=_payload(name=f"c-{i}", ip=f"10.0.0.{i}"))
+    resp = logged_client.post("/api/v1/checks/run", json={})
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 5
+    assert all(r["status"] == "success" for r in results)
+    assert logged_client.get("/api/v1/results").json()["total"] == 5
+
+
 def test_manual_run_unknown_target(logged_client: TestClient):
     resp = logged_client.post("/api/v1/checks/run", json={"target_id": "nonexistent"})
     assert resp.status_code == 404
