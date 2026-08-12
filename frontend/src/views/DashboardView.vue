@@ -302,7 +302,17 @@ function onExportSelect(key: string) {
     start_at: toIsoTs(filters.start_at),
     end_at: toIsoTs(filters.end_at),
   }
-  api.exportResults(key as 'csv' | 'json', params).catch((e) => message.error(errText(e)))
+  const hide = message.loading(`正在导出 ${key === 'csv' ? 'CSV' : 'JSON'}…`, { duration: 0 })
+  api
+    .exportResults(key as 'csv' | 'json', params)
+    .then(() => {
+      hide.destroy()
+      message.success('导出完成')
+    })
+    .catch((e) => {
+      hide.destroy()
+      message.error(errText(e))
+    })
 }
 
 function resetFilters() {
