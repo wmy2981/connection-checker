@@ -543,12 +543,13 @@ const columns: DataTableColumns<Target> = [
     width: 150,
     render: (t) => {
       const s = targetStatus.value[t.id]
-      if (!s || !s.last_status) return h('span', { class: 'dim' }, '—')
+      const status = s?.last_status
+      if (!status) return h('span', { class: 'dim' }, '—')
       return h(NSpace, { size: 4, align: 'center' }, () => [
         h(
           NTag,
-          { size: 'small', bordered: false, type: statusTag[s.last_status].type },
-          { default: () => statusTag[s.last_status].label },
+          { size: 'small', bordered: false, type: statusTag[status].type },
+          { default: () => statusTag[status].label },
         ),
         s.last_latency_ms != null ? h('span', { class: 'dim' }, `${s.last_latency_ms}ms`) : null,
       ])
