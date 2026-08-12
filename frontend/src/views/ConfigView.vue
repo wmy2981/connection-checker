@@ -642,7 +642,20 @@ const columns: DataTableColumns<Target> = [
           },
           { default: () => statusTag[status].label },
         ),
-        s.last_latency_ms != null ? h('span', { class: 'dim' }, `${s.last_latency_ms}ms`) : null,
+        s.last_latency_ms != null
+          ? h(
+              'span',
+              {
+                class:
+                  s.last_latency_ms >= 1000
+                    ? 'lat-bad'
+                    : s.last_latency_ms >= 500
+                      ? 'lat-warn'
+                      : 'dim',
+              },
+              `${s.last_latency_ms}ms`,
+            )
+          : null,
       ])
     },
   },
@@ -1067,6 +1080,16 @@ const columns: DataTableColumns<Target> = [
 }
 .dim {
   color: var(--cc-text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.lat-warn {
+  color: #fab219;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.lat-bad {
+  color: #d03b3b;
   font-size: 12px;
   white-space: nowrap;
 }
