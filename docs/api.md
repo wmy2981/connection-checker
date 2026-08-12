@@ -376,7 +376,7 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/targets
 
 ### GET /stream
 
-Server-Sent Events 流。事件：
+Server-Sent Events 流。认证走会话 Cookie（`EventSource` 无法携带自定义请求头，需先通过浏览器会话登录；API Token 认证不适用于 SSE）。事件：
 
 - `ready` — 连接建立
 - `result` — 新检查结果，`data` 为单个结果对象（结构与 `/results` 单条一致）
