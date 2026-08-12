@@ -411,6 +411,30 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     assert ts["uptime_total"] == 1
 
 
+def test_results_filter_by_check_method(logged_client, fake_checker, no_scheduler):
+    """check_method 筛选：单值与逗号分隔多值均生效（含导出接口）。"""
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload(name="p1", ip="8.8.8.1", method="ping"))
+    logged_client.post("/api/v1/targets", json=_payload(name="h1", ip="8.8.8.2", method="http"))
+    logged_client.post("/api/v1/checks/run", json={})
+
+    only_http = logged_client.get(
+        "/api/v1/results", params={"check_method": "http"}
+    ).json()
+    assert only_http["total"] == 1
+    assert only_http["results"][0]["check_method"] == "http"
+
+    multi = logged_client.get(
+        "/api/v1/results", params={"check_method": "ping,http"}
+    ).json()
+    assert multi["total"] == 2
+
+    export = logged_client.get(
+        "/api/v1/results/export.json", params={"check_method": "dns"}
+    ).json()
+    assert export == []
+
+
 def test_results_multi_value_filters(logged_client, fake_checker, no_scheduler):
     """status / target_id 支持逗号分隔多值筛选（前端多选）。"""
     fake_checker(status="timeout", message="slow")

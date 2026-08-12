@@ -48,6 +48,7 @@ const running = ref(false)
 
 const filters = reactive({
   status: [] as string[],
+  check_method: [] as string[],
   ip: '',
   target_name: [] as string[],
   target_id: [] as string[],
@@ -87,6 +88,13 @@ const statusOptions = [
   { label: '失败', value: 'fail' },
   { label: '超时', value: 'timeout' },
   { label: '错误', value: 'error' },
+]
+
+const methodOptions = [
+  { label: 'Ping', value: 'ping' },
+  { label: '端口', value: 'port' },
+  { label: 'HTTP', value: 'http' },
+  { label: 'DNS', value: 'dns' },
 ]
 
 const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'default'; label: string }> = {
@@ -148,6 +156,7 @@ async function fetchResults() {
   try {
     const params: ResultFilterParams = {
       status: multi(filters.status),
+      check_method: multi(filters.check_method),
       ip: filters.ip,
       target_name: multi(filters.target_name),
       target_id: multi(filters.target_id),
@@ -187,6 +196,7 @@ const exportOptions = [
 function onExportSelect(key: string) {
   const params: ResultFilterParams = {
     status: multi(filters.status),
+    check_method: multi(filters.check_method),
     ip: filters.ip,
     target_name: multi(filters.target_name),
     target_id: multi(filters.target_id),
@@ -198,6 +208,7 @@ function onExportSelect(key: string) {
 
 function resetFilters() {
   filters.status = []
+  filters.check_method = []
   filters.ip = ''
   filters.target_name = []
   filters.target_id = []
@@ -443,6 +454,14 @@ const columns: DataTableColumns<CheckResult> = [
                 multiple
                 clearable
                 placeholder="状态"
+                style="width: 150px"
+              />
+              <n-select
+                v-model:value="filters.check_method"
+                :options="methodOptions"
+                multiple
+                clearable
+                placeholder="检查方式"
                 style="width: 150px"
               />
               <n-input

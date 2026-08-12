@@ -56,6 +56,7 @@ export interface CheckResult {
 
 export interface ResultFilterParams {
   status?: string
+  check_method?: string
   ip?: string
   target_name?: string
   target_id?: string

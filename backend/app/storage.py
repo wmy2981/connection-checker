@@ -407,10 +407,14 @@ class ResultStore:
 
     @staticmethod
     def _matches(f: ResultFilter, r: CheckResult) -> bool:
-        # status / target_id 支持逗号分隔多值（前端多选）
+        # status / check_method / target_id 支持逗号分隔多值（前端多选）
         if f.status:
             statuses = {s for s in f.status.split(",") if s and s != "all"}
             if statuses and r.status not in statuses:
+                return False
+        if f.check_method:
+            methods = {s for s in f.check_method.split(",") if s}
+            if methods and r.check_method not in methods:
                 return False
         if f.ip and not ip_matches(f.ip, r.ip):
             return False

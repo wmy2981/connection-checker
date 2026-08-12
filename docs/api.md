@@ -110,6 +110,7 @@
 | 参数 | 说明 |
 | --- | --- |
 | `status` | `success` / `fail` / `timeout` / `error` / `all`（逗号分隔多选） |
+| `check_method` | `ping` / `port` / `http` / `dns`（逗号分隔多选） |
 | `ip` | IP 模糊匹配（含 `*` / `?` 时按通配符全匹配） |
 | `target_id` | 按目标过滤（逗号分隔多选） |
 | `target_name` | 按目标名称/地址过滤（逗号分隔多选） |

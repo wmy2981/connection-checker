@@ -100,6 +100,7 @@ class CheckResult(BaseModel):
 
 class ResultFilter(BaseModel):
     status: str | None = None  # 逗号分隔多值（success,fail），空或 all 表示不筛
+    check_method: str | None = None  # 逗号分隔多值（ping,http），空表示不筛
     ip: str | None = None
     target_name: str | None = None
     target_id: str | None = None
