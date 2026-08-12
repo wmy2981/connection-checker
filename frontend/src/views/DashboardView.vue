@@ -446,7 +446,10 @@ const columns: DataTableColumns<CheckResult> = [
                 v-for="t in stats.target_status"
                 :key="t.target_id"
                 class="target-card"
-                :class="{ disabled: !t.enabled }"
+                :class="[
+                  { disabled: !t.enabled },
+                  t.last_status ? `st-${t.last_status}` : '',
+                ]"
                 :title="t.last_checked_at ? `最近检查：${formatTime(t.last_checked_at)}` : '暂无检查记录'"
                 @click="filterByTarget(t.target_id)"
               >
@@ -708,6 +711,16 @@ const columns: DataTableColumns<CheckResult> = [
 }
 .target-card.disabled {
   opacity: 0.55;
+}
+/* 故障目标边框着色，便于一眼识别 */
+.target-card.st-fail {
+  border-color: rgba(208, 59, 59, 0.55);
+}
+.target-card.st-timeout {
+  border-color: rgba(250, 178, 25, 0.55);
+}
+.target-card.st-error {
+  border-color: rgba(236, 131, 90, 0.55);
 }
 .tname {
   font-weight: 600;
