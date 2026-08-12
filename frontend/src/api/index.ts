@@ -37,10 +37,24 @@ async function downloadExport(
 ): Promise<void> {
   const query = buildQuery(params)
   const controller = new AbortController()
+  // 超时覆盖整个导出：响应体（blob）阶段同样受保护，停滞的流会在 60s 后中止
   const timer = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS)
-  let res: Response
   try {
-    res = await fetch(`${path}${query}`, { signal: controller.signal })
+    const res = await fetch(`${path}${query}`, { signal: controller.signal })
+    if (res.status === 401) {
+      window.location.href = '/login'
+      return
+    }
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const cd = res.headers.get('Content-Disposition')
+    const m = cd?.match(/filename="([^"]+)"/)
+    a.download = m?.[1] ?? fallbackName
+    a.href = url
+    a.click()
+    URL.revokeObjectURL(url)
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new ApiError(408, '导出超时，请缩小筛选范围后重试')
@@ -49,20 +63,6 @@ async function downloadExport(
   } finally {
     clearTimeout(timer)
   }
-  if (res.status === 401) {
-    window.location.href = '/login'
-    return
-  }
-  if (!res.ok) throw new ApiError(res.status, res.statusText)
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  const cd = res.headers.get('Content-Disposition')
-  const m = cd?.match(/filename="([^"]+)"/)
-  a.download = m?.[1] ?? fallbackName
-  a.href = url
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 export const api = {

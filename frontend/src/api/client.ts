@@ -18,10 +18,30 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     headers.set('Content-Type', 'application/json')
   }
   const controller = new AbortController()
+  // 超时覆盖整个请求：fetch 返回头后响应体读取阶段（res.json）同样受保护
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  let res: Response
   try {
-    res = await fetch(BASE + path, { ...options, headers, signal: controller.signal })
+    const res = await fetch(BASE + path, { ...options, headers, signal: controller.signal })
+
+    // 会话失效时跳转登录页（登录/会话查询接口除外，避免死循环）
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      window.location.href = '/login'
+      throw new ApiError(401, '未授权访问')
+    }
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const data = await res.json()
+        if (typeof data.detail === 'string') detail = data.detail
+      } catch {
+        /* 非 JSON 响应，保留默认信息 */
+      }
+      throw new ApiError(res.status, detail)
+    }
+    if (res.status === 204) {
+      return undefined as T
+    }
+    return (await res.json()) as T
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new ApiError(408, '请求超时，请检查服务状态')
@@ -30,24 +50,4 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   } finally {
     clearTimeout(timer)
   }
-
-  // 会话失效时跳转登录页（登录/会话查询接口除外，避免死循环）
-  if (res.status === 401 && !path.startsWith('/auth/')) {
-    window.location.href = '/login'
-    throw new ApiError(401, '未授权访问')
-  }
-  if (!res.ok) {
-    let detail = res.statusText
-    try {
-      const data = await res.json()
-      if (typeof data.detail === 'string') detail = data.detail
-    } catch {
-      /* 非 JSON 响应，保留默认信息 */
-    }
-    throw new ApiError(res.status, detail)
-  }
-  if (res.status === 204) {
-    return undefined as T
-  }
-  return (await res.json()) as T
 }
