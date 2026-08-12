@@ -99,6 +99,11 @@ const apiToken = ref<string | null>(null)
 const brandIconInput = ref('')
 const brandSaving = ref(false)
 const iconFileInput = ref<HTMLInputElement | null>(null)
+// 预览加载失败（非法 URL）时回退默认图标
+const previewBroken = ref(false)
+watch(brandIconInput, () => {
+  previewBroken.value = false
+})
 
 // 本地上传图标：转 base64 data URI 填入输入框（预览后保存）；限 1MB（后端字段上限 2M）
 const ICON_FILE_MAX = 1 * 1024 * 1024
@@ -995,7 +1000,12 @@ const columns: DataTableColumns<Target> = [
           <n-card title="品牌图标" size="small">
           <n-space vertical size="large">
             <n-space align="center" :size="12" wrap>
-              <img :src="brandIconInput || '/favicon.svg'" alt="图标预览" class="brand-preview" />
+              <img
+                :src="previewBroken ? '/favicon.svg' : brandIconInput || '/favicon.svg'"
+                alt="图标预览"
+                class="brand-preview"
+                @error="previewBroken = true"
+              />
               <span class="hint">预览；必须是正方形（PNG/JPEG/GIF/WebP/SVG），不符合将被拒绝保存</span>
             </n-space>
             <n-space align="center" :size="12" wrap>
