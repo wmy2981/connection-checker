@@ -109,7 +109,8 @@ const hoverPoint = computed(() => {
 
 const xLabels = computed(() => {
   const n = points.value.length
-  const step = Math.max(1, Math.ceil(n / 6))
+  // 数据点少（如 7 天视图）时全量显示标签，避免间隔跳号
+  const step = n <= 7 ? 1 : Math.max(1, Math.ceil(n / 6))
   const labels: { x: number; text: string }[] = []
   for (let i = 0; i < n; i += step) {
     labels.push({ x: xAt(i), text: fmtShort(props.buckets[i].bucket) })
