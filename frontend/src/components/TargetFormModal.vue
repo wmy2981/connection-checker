@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { nextTick, reactive, ref, watch } from 'vue'
 import {
   NButton,
   NCard,
@@ -14,6 +14,7 @@ import {
   NTimePicker,
   useMessage,
 } from 'naive-ui'
+import type { InputInst } from 'naive-ui'
 
 import { copyText } from '@/composables/useClipboard'
 import type { CheckMethod, Target, TargetInput, TimeRange } from '@/types'
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const saving = ref(false)
+const ipInputRef = ref<InputInst | null>(null)
 
 const form = reactive({
   name: '',
@@ -65,8 +67,11 @@ const intervalOptions = [
 
 watch(
   () => [props.show, props.target],
-  () => {
+  async () => {
     if (!props.show) return
+    // 弹窗打开后自动聚焦 IP 输入框，减少一次点击
+    await nextTick()
+    ipInputRef.value?.focus()
     const t = props.target
     form.name = t?.name ?? ''
     form.ip = t?.ip ?? ''
@@ -181,7 +186,7 @@ function submit() {
           <n-input v-model:value="form.name" placeholder="可选，便于识别" />
         </n-form-item>
         <n-form-item label="IP / 主机名" required>
-          <n-input v-model:value="form.ip" placeholder="如 8.8.8.8 或 example.com" />
+          <n-input ref="ipInputRef" v-model:value="form.ip" placeholder="如 8.8.8.8 或 example.com" />
         </n-form-item>
         <n-form-item label="检查方式" required>
           <n-select v-model:value="form.check_method" :options="methodOptions" />
