@@ -169,5 +169,6 @@ export interface TrendBucket {
 export interface TrendData {
   hours: number
   target_id: string | null
+  unit: 'hour' | 'day'
   buckets: TrendBucket[]
 }

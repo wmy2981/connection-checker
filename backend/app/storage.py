@@ -477,20 +477,34 @@ class ResultStore:
         return [r for r in reversed(all_results) if self._matches(f, r)]
 
     async def trend(
-        self, hours: int = 24, target_id: str | None = None
+        self,
+        hours: int = 24,
+        target_id: str | None = None,
+        unit: str = "hour",
     ) -> list[dict[str, Any]]:
-        """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。
+        """聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。
 
+        unit=hour：按小时桶；unit=day：按天桶（小时数折算为天数）。
         target_id 指定时只统计该目标，用于单目标趋势排查。
         """
         async with self._lock:
             results = list(self._results)
         now = datetime.now().astimezone()
-        base = now.replace(minute=0, second=0, microsecond=0)
-        cutoff = base - timedelta(hours=hours - 1)
+        if unit == "day":
+            count = max(1, hours // 24)
+            base = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            step = timedelta(days=1)
+            cutoff = base - timedelta(days=count - 1)
+            fmt = "%Y-%m-%d"
+        else:
+            count = hours
+            base = now.replace(minute=0, second=0, microsecond=0)
+            step = timedelta(hours=1)
+            cutoff = base - timedelta(hours=count - 1)
+            fmt = "%Y-%m-%dT%H:00"
         buckets: dict[str, dict[str, Any]] = {}
-        for i in range(hours):
-            key = (cutoff + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00")
+        for i in range(count):
+            key = (cutoff + i * step).strftime(fmt)
             buckets[key] = {
                 "bucket": key,
                 "total": 0,
@@ -507,7 +521,7 @@ class ResultStore:
             t = r.checked_at.astimezone()
             if t < cutoff:
                 continue
-            b = buckets.get(t.strftime("%Y-%m-%dT%H:00"))
+            b = buckets.get(t.strftime(fmt))
             if b is None:
                 continue
             b["total"] += 1

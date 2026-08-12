@@ -67,13 +67,14 @@ const hoverY = ref(0)
 const tooltipLeft = ref(0)
 const tooltipTop = ref(0)
 
-// 桶形如 "2026-08-08T05:00"，是后端按容器时区聚合的本地小时，直接取分量显示，
-// 避免 new Date() 按浏览器时区二次换算。
+// 桶形如 "2026-08-08T05:00"（小时）或 "2026-08-08"（天），是后端按容器时区
+// 聚合的本地时间，直接取分量显示，避免 new Date() 按浏览器时区二次换算。
 function fmtShort(bucket: string): string {
-  return bucket.slice(11, 16)
+  return bucket.length <= 10 ? bucket.slice(5) : bucket.slice(11, 16)
 }
 
 function fmtTime(bucket: string): string {
+  if (bucket.length <= 10) return bucket
   const m = Number(bucket.slice(5, 7))
   const d = bucket.slice(8, 10)
   const hh = bucket.slice(11, 13)

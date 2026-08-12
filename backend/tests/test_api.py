@@ -417,6 +417,16 @@ def test_stats_trend_filter_by_target(logged_client: TestClient, fake_checker, n
     ).json()
     assert none["buckets"][-1]["total"] == 0
 
+    # 天级聚合：unit=day 返回 1 个当日桶，非法 unit 被 422 拒绝
+    day = logged_client.get(
+        "/api/v1/stats/trend", params={"hours": 24, "unit": "day"}
+    ).json()
+    assert day["unit"] == "day"
+    assert len(day["buckets"]) == 1
+    assert day["buckets"][-1]["total"] == 2
+    bad = logged_client.get("/api/v1/stats/trend", params={"unit": "minute"})
+    assert bad.status_code == 422
+
 
 def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     fake_checker(status="fail", message="超时了")

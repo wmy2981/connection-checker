@@ -351,11 +351,13 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/targets
 | --- | --- |
 | `hours` | 窗口小时数，默认 24，范围 1–168 |
 | `target_id` | 只统计指定目标；缺省为全部目标 |
+| `unit` | 聚合粒度：`hour` 按小时（默认）/ `day` 按天（小时数折算为天数） |
 
 ```json
 {
   "hours": 24,
   "target_id": null,
+  "unit": "hour",
   "buckets": [
     {
       "bucket": "2026-08-12T00:00",

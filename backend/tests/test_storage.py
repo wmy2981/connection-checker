@@ -308,6 +308,34 @@ async def test_uptime_per_target(tmp_path):
     assert up6["t1"]["uptime_pct"] == round(2 / 3 * 100, 1)
 
 
+async def test_trend_day_unit(tmp_path):
+    """trend unit=day：按天聚合，桶格式为 YYYY-MM-DD。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    await store.append(_result("t1", "success", now))
+    await store.append(_result("t1", "fail", now - timedelta(hours=2)))
+    await store.append(_result("t1", "success", now - timedelta(days=1)))
+    await store.append(_result("t1", "success", now - timedelta(days=10)))
+
+    buckets = await store.trend(24, unit="day")
+    assert len(buckets) == 1
+    last = buckets[-1]
+    assert last["bucket"] == now.astimezone().strftime("%Y-%m-%d")
+    assert last["total"] == 2
+    assert last["success"] == 1
+    assert last["fail"] == 1
+
+    # 7 天窗口包含昨天与今天
+    week = await store.trend(168, unit="day")
+    assert len(week) == 7
+    assert sum(b["total"] for b in week) == 3
+    # 按目标过滤同样适用于天级聚合
+    t1_only = await store.trend(168, unit="day", target_id="t1")
+    assert sum(b["total"] for b in t1_only) == 3
+    ghost = await store.trend(168, unit="day", target_id="ghost")
+    assert sum(b["total"] for b in ghost) == 0
+
+
 async def test_trend_filter_by_target(tmp_path):
     """trend 支持按目标过滤：只统计指定目标的记录。"""
     store = ResultStore(tmp_path / "results.jsonl", max_records=100)

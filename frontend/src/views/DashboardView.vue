@@ -17,6 +17,8 @@ import {
   NLayoutHeader,
   NModal,
   NPagination,
+  NRadioButton,
+  NRadioGroup,
   NSelect,
   NSpace,
   NTag,
@@ -212,8 +214,9 @@ async function fetchStats() {
   }
 }
 
-// 趋势图目标筛选：null = 全部目标
+// 趋势图目标筛选：null = 全部目标；粒度：hour 24h / day 7 天
 const trendTargetId = ref<string | null>(null)
+const trendUnit = ref<'hour' | 'day'>('hour')
 
 const trendOptions = computed(() =>
   (stats.value?.target_status ?? []).map((t) => ({
@@ -224,13 +227,17 @@ const trendOptions = computed(() =>
 
 async function fetchTrend() {
   try {
-    trend.value = await api.statsTrend(24, trendTargetId.value ?? undefined)
+    trend.value = await api.statsTrend(
+      trendUnit.value === 'day' ? 168 : 24,
+      trendTargetId.value ?? undefined,
+      trendUnit.value,
+    )
   } catch {
     /* 401 由 client 统一跳转 */
   }
 }
 
-watch(trendTargetId, () => {
+watch([trendTargetId, trendUnit], () => {
   void fetchTrend()
 })
 
@@ -559,16 +566,22 @@ const columns: DataTableColumns<CheckResult> = [
             <n-empty v-else description="还没有检查目标，去「配置管理」添加" />
           </n-card>
 
-          <n-card title="成功率趋势（近 24 小时）" size="small">
+          <n-card :title="trendUnit === 'day' ? '成功率趋势（近 7 天）' : '成功率趋势（近 24 小时）'" size="small">
             <template #header-extra>
-              <n-select
-                v-model:value="trendTargetId"
-                :options="trendOptions"
-                clearable
-                placeholder="全部目标"
-                size="small"
-                style="width: 200px"
-              />
+              <n-space align="center" :size="8">
+                <n-radio-group v-model:value="trendUnit" size="small">
+                  <n-radio-button value="hour">24h</n-radio-button>
+                  <n-radio-button value="day">7 天</n-radio-button>
+                </n-radio-group>
+                <n-select
+                  v-model:value="trendTargetId"
+                  :options="trendOptions"
+                  clearable
+                  placeholder="全部目标"
+                  size="small"
+                  style="width: 200px"
+                />
+              </n-space>
             </template>
             <TrendChart v-if="trend && trend.buckets.length" :buckets="trend.buckets" />
             <n-empty v-else description="暂无数据" />

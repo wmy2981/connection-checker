@@ -64,10 +64,14 @@ async def trend(
     request: Request,
     hours: int = Query(default=24, ge=1, le=168),
     target_id: str | None = Query(default=None, description="按目标过滤，空为全部目标"),
+    unit: str = Query(
+        default="hour", pattern="^(hour|day)$", description="聚合粒度：hour 按小时 / day 按天"
+    ),
 ) -> dict:
     result_store = request.app.state.result_store
     return {
         "hours": hours,
         "target_id": target_id,
-        "buckets": await result_store.trend(hours, target_id),
+        "unit": unit,
+        "buckets": await result_store.trend(hours, target_id, unit),
     }
