@@ -106,12 +106,15 @@ def require_auth(request: Request) -> None:
         return
 
     auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
+    token = request.cookies.get(COOKIE_NAME)
+    if token and security.verify_token(token):
+        # 会话 Cookie 优先：残留/失效的 Bearer 头（token 已轮换或脚本遗留）不破坏有效会话
+        authed = True
+    elif auth_header.startswith("Bearer "):
         api_token = request.app.state.secrets_store.api_token
         authed = bool(api_token) and secrets.compare_digest(auth_header[7:], api_token)
     else:
-        token = request.cookies.get(COOKIE_NAME)
-        authed = bool(token) and security.verify_token(token)
+        authed = False
     if not authed:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未授权访问")
 

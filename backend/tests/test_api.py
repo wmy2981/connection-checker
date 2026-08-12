@@ -716,17 +716,28 @@ def _generate_token(logged_client: TestClient) -> str:
     return resp.json()["token"]
 
 
-def test_api_token_flow(logged_client: TestClient):
-    """API Token：生成后 Bearer 可用，重新生成旧 token 失效，删除后禁用。"""
+def _bare_client(settings):
+    """无登录 cookie 的独立客户端（同一 data_dir，读取最新 secrets.json 的 token）。"""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    return TestClient(create_app(settings))
+
+
+def test_api_token_flow(logged_client: TestClient, settings):
+    """API Token：生成后 Bearer 可用，重新生成旧 token 失效，删除后禁用。
+
+    Bearer 失效语义用无 cookie 的独立客户端验证（带 cookie 的会话由 cookie 认证）。
+    """
     assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
 
     token = _generate_token(logged_client)
     assert token
 
-    assert logged_client.get("/api/v1/targets", headers=_bearer(token)).status_code == 200
-    assert (
-        logged_client.get("/api/v1/targets", headers=_bearer("wrong")).status_code == 401
-    )
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(token)).status_code == 200
+        assert bare.get("/api/v1/targets", headers=_bearer("wrong")).status_code == 401
     assert logged_client.get("/api/v1/targets").status_code == 200  # cookie 仍可用
 
     secrets_raw = json.loads(
@@ -736,12 +747,27 @@ def test_api_token_flow(logged_client: TestClient):
 
     new_token = _generate_token(logged_client)
     assert new_token != token
-    assert logged_client.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
-    assert logged_client.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 200
+    # 无 cookie 调用方：旧 token 立即失效，新 token 可用
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
+        assert bare.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 200
 
     assert logged_client.delete("/api/v1/settings/api-token").status_code == 200
     assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
-    assert logged_client.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 401
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 401
+
+
+def test_valid_cookie_wins_over_stale_bearer(logged_client: TestClient, settings):
+    """有效 Cookie 会话优先于残留/失效的 Bearer 头：token 轮换后浏览器不被 401 踢出。"""
+    token = _generate_token(logged_client)
+    _generate_token(logged_client)  # 轮换：旧 token 立即失效
+    # 无 cookie 客户端：失效 token 仍被拒绝
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
+    # 浏览器同时携带有效 cookie 与失效 Bearer（如脚本残留头）：cookie 会话仍放行
+    resp = logged_client.get("/api/v1/targets", headers=_bearer(token))
+    assert resp.status_code == 200
 
 
 def test_api_token_requires_json_content_type(logged_client: TestClient):
