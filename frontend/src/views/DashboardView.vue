@@ -340,6 +340,39 @@ function resetFilters() {
   applyFilters()
 }
 
+// 常用时间范围快捷筛选（设置起止时间戳并立即查询）
+function applyQuickRange(key: string) {
+  const now = new Date()
+  const sod = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const eod = sod + 86_400_000 - 1
+  switch (key) {
+    case 'today':
+      filters.start_at = sod
+      filters.end_at = eod
+      break
+    case 'yesterday':
+      filters.start_at = sod - 86_400_000
+      filters.end_at = sod - 1
+      break
+    case 'week':
+      filters.start_at = now.getTime() - 7 * 86_400_000
+      filters.end_at = now.getTime()
+      break
+    case 'month':
+      filters.start_at = now.getTime() - 30 * 86_400_000
+      filters.end_at = now.getTime()
+      break
+  }
+  applyFilters()
+}
+
+const rangeOptions = [
+  { label: '今天', key: 'today' },
+  { label: '昨天', key: 'yesterday' },
+  { label: '近 7 天', key: 'week' },
+  { label: '近 30 天', key: 'month' },
+]
+
 function filterByTarget(targetId: string) {
   filters.target_id = [targetId]
   applyFilters()
@@ -698,6 +731,17 @@ const columns: DataTableColumns<CheckResult> = [
                 :menu-props="{ class: 'wide-popup' }"
                 style="width: 240px"
               />
+              <n-space :size="4" align="center">
+                <n-button
+                  v-for="opt in rangeOptions"
+                  :key="opt.key"
+                  size="tiny"
+                  secondary
+                  @click="applyQuickRange(opt.key)"
+                >
+                  {{ opt.label }}
+                </n-button>
+              </n-space>
               <n-date-picker
                 v-model:value="filters.start_at"
                 type="datetime"
