@@ -575,7 +575,15 @@ const columns: DataTableColumns<CheckResult> = [
           <span>连接检查工具</span>
         </div>
         <n-space align="center" wrap :size="8">
-          <n-button size="small" type="primary" :loading="running" @click="runAll">全部立即检查</n-button>
+          <n-button
+            size="small"
+            type="primary"
+            :loading="running"
+            :disabled="(stats?.enabled_targets ?? 0) === 0"
+            @click="runAll"
+          >
+            全部立即检查
+          </n-button>
           <n-button size="small" @click="router.push('/config')">配置管理</n-button>
           <ThemeToggle />
           <n-button size="small" quaternary @click="logout">退出登录</n-button>
