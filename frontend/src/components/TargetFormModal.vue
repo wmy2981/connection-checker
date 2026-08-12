@@ -96,6 +96,18 @@ function validate(): string | null {
   if (!form.name?.trim() && !form.ip.trim()) return '请填写名称或 IP'
   if (!form.ip.trim()) return '请填写 IP 或主机名'
   if (form.check_method === 'port' && !form.port) return '端口检查需要填写端口'
+  if (form.check_method === 'http' && form.http_codes_text.trim()) {
+    const parts = form.http_codes_text
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const invalid = parts.filter(
+      (p) => !/^\d{3}$/.test(p) || Number(p) < 100 || Number(p) > 599,
+    )
+    if (invalid.length) {
+      return `期望状态码包含无效值：${invalid.join(', ')}（应为 100-599 的数字，逗号分隔）`
+    }
+  }
   if (form.time_ranges.some((r) => !r.start || !r.end)) return '时间窗口的开始/结束时间不能为空'
   return null
 }
