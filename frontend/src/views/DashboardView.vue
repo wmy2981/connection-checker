@@ -32,7 +32,7 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import TrendChart from '@/components/TrendChart.vue'
-import { formatDateTime } from '@/composables/useAppTime'
+import { formatDateTime, relativeTime } from '@/composables/useAppTime'
 import type { CheckResult, ResultFilterParams, StatsSummary, TrendData } from '@/types'
 
 const router = useRouter()
@@ -189,16 +189,11 @@ function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
 
-// 相对时间：1 分钟内「N 秒前」、1 小时内「N 分钟前」、24 小时内「N 小时前」，
-// 超过 24 小时显示绝对时间；每 30 秒刷新一次
+// 相对时间展示：每 30 秒刷新一次（nowTs 变化触发列重渲染）
 const nowTs = ref(Date.now())
 let relTimer: number | null = null
 function relTime(iso: string): string {
-  const diff = Math.max(0, nowTs.value - new Date(iso).getTime())
-  if (diff < 60_000) return `${Math.floor(diff / 1000)} 秒前`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  return formatDateTime(iso)
+  return relativeTime(iso, nowTs.value)
 }
 
 // 行按状态着色（成功绿、失败红、超时橙、错误亮橙）且点击整行可打开详情

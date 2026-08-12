@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { NCard, NStatistic } from 'naive-ui'
 
-import { formatDateTime } from '@/composables/useAppTime'
+import { relativeTime } from '@/composables/useAppTime'
 import type { StatsSummary } from '@/types'
 
 const props = defineProps<{ stats: StatsSummary | null }>()
@@ -10,12 +10,7 @@ const props = defineProps<{ stats: StatsSummary | null }>()
 // 上次检查的相对时间（随 stats 刷新重算，无需独立定时器）
 const lastCheckText = computed(() => {
   const iso = props.stats?.latest_check_at
-  if (!iso) return ''
-  const diff = Math.max(0, Date.now() - new Date(iso).getTime())
-  if (diff < 60_000) return `${Math.floor(diff / 1000)} 秒前`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  return formatDateTime(iso)
+  return iso ? relativeTime(iso) : ''
 })
 
 // 全部目标近 24h 综合可用率（由每目标 uptime_pct × uptime_total 反推成功数汇总）
