@@ -29,7 +29,7 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { copyText } from '@/composables/useClipboard'
-import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, WebhookConfig } from '@/types'
+import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -38,6 +38,8 @@ const targets = ref<Target[]>([])
 const loading = ref(false)
 const modalShow = ref(false)
 const editing = ref<Target | null>(null)
+// 每个目标的最新检查状态（来自 /stats/summary），供「最近状态」列展示
+const targetStatus = ref<Record<string, TargetStatus>>({})
 
 const webhook = ref<WebhookConfig>({ enabled: true, url: null, fail_threshold: 3 })
 const webhookUrl = ref('')
@@ -257,6 +259,17 @@ async function load() {
   }
 }
 
+async function loadStats() {
+  try {
+    const s = await api.stats()
+    const map: Record<string, TargetStatus> = {}
+    for (const t of s.target_status) map[t.target_id] = t
+    targetStatus.value = map
+  } catch {
+    /* 401 由 client 处理 */
+  }
+}
+
 async function loadAppSettings() {
   try {
     appSettings.value = await api.getAppSettings()
@@ -437,6 +450,7 @@ async function testS3() {
 
 onMounted(() => {
   load()
+  loadStats()
   loadAppSettings()
   loadWebhook()
   loadS3()
@@ -491,6 +505,13 @@ async function toggleEnabled(t: Target, value: boolean) {
 
 const statusLabels: Record<string, string> = { success: '成功', fail: '失败', timeout: '超时', error: '错误' }
 
+const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'default'; label: string }> = {
+  success: { type: 'success', label: '成功' },
+  fail: { type: 'error', label: '失败' },
+  timeout: { type: 'warning', label: '超时' },
+  error: { type: 'default', label: '错误' },
+}
+
 async function runOne(t: Target) {
   try {
     const r = await api.runChecks(t.id)
@@ -499,6 +520,7 @@ async function runOne(t: Target) {
     if (status === 'fail' || status === 'error') message.error(text)
     else if (status === 'timeout') message.warning(text)
     else message.success(text)
+    await loadStats()
   } catch (e) {
     message.error(errText(e))
   }
@@ -515,6 +537,23 @@ const columns: DataTableColumns<Target> = [
   { title: '名称', key: 'name', render: (t) => t.name || '-' },
   { title: 'IP / 主机名', key: 'ip', minWidth: 140 },
   { title: '方式', key: 'check_method', render: (t) => methodText(t) },
+  {
+    title: '最近状态',
+    key: 'last_status',
+    width: 150,
+    render: (t) => {
+      const s = targetStatus.value[t.id]
+      if (!s || !s.last_status) return h('span', { class: 'dim' }, '—')
+      return h(NSpace, { size: 4, align: 'center' }, () => [
+        h(
+          NTag,
+          { size: 'small', bordered: false, type: statusTag[s.last_status].type },
+          { default: () => statusTag[s.last_status].label },
+        ),
+        s.last_latency_ms != null ? h('span', { class: 'dim' }, `${s.last_latency_ms}ms`) : null,
+      ])
+    },
+  },
   {
     title: '间隔',
     key: 'check_interval',
@@ -918,6 +957,11 @@ const columns: DataTableColumns<Target> = [
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
+}
+.dim {
+  color: var(--cc-text-3);
+  font-size: 12px;
+  white-space: nowrap;
 }
 @media (max-width: 640px) {
   .header-inner {
