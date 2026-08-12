@@ -898,7 +898,12 @@ const columns: DataTableColumns<Target> = [
             </n-space>
             <n-space vertical :size="8">
               <span class="label">Webhook 地址（兼容 Gotify / 企业微信 / 自建服务，POST JSON）</span>
-              <n-input v-model:value="webhookUrl" placeholder="https://gotify.example.com/message?token=..." clearable />
+              <n-input
+                v-model:value="webhookUrl"
+                placeholder="https://gotify.example.com/message?token=..."
+                :maxlength="500"
+                clearable
+              />
             </n-space>
             <n-space align="center" :size="12">
               <span>连续失败阈值</span>
@@ -921,11 +926,23 @@ const columns: DataTableColumns<Target> = [
             </n-space>
             <n-space align="center" :size="12" wrap>
               <span class="label">Endpoint</span>
-              <n-input v-model:value="s3.endpoint" placeholder="https://s3.example.com" clearable style="width: 300px" />
+              <n-input
+                v-model:value="s3.endpoint"
+                placeholder="https://s3.example.com"
+                :maxlength="500"
+                clearable
+                style="width: 300px"
+              />
             </n-space>
             <n-space align="center" :size="12" wrap>
               <span class="label">Bucket</span>
-              <n-input v-model:value="s3.bucket" placeholder="存储桶名称" clearable style="width: 200px" />
+              <n-input
+                v-model:value="s3.bucket"
+                placeholder="存储桶名称"
+                :maxlength="255"
+                clearable
+                style="width: 200px"
+              />
               <span class="label">Region（可选）</span>
               <n-input v-model:value="s3.region" placeholder="部分服务要求" clearable style="width: 150px" />
             </n-space>
@@ -934,6 +951,7 @@ const columns: DataTableColumns<Target> = [
               <n-input
                 v-model:value="s3.datapath"
                 placeholder="如 connection-checker/，数据在 bucket 中的路径前缀"
+                :maxlength="500"
                 clearable
                 style="width: 300px"
               />
@@ -1013,6 +1031,7 @@ const columns: DataTableColumns<Target> = [
               <n-input
                 v-model:value="brandIconInput"
                 placeholder="图片 URL 或 base64 data URI（data:image/png;base64,...）"
+                :maxlength="2000000"
                 clearable
                 style="width: 420px"
               />
