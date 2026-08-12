@@ -96,6 +96,33 @@ def test_create_target_validation(logged_client: TestClient):
     assert resp.status_code == 422
 
 
+def test_target_crud_and_settings_logged(logged_client, no_scheduler, caplog):
+    """目标 CRUD 与全局设置更新记录 INFO 日志（4 级日志机制回归）。"""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        created = logged_client.post("/api/v1/targets", json=_payload())
+        assert created.status_code == 201
+        tid = created.json()["id"]
+        assert (
+            logged_client.put(
+                f"/api/v1/targets/{tid}", json={"check_interval": 120}
+            ).status_code
+            == 200
+        )
+        assert logged_client.delete(f"/api/v1/targets/{tid}").status_code == 204
+
+        cfg = logged_client.get("/api/v1/settings/webhook").json()
+        cfg["fail_threshold"] = 5
+        assert logged_client.put("/api/v1/settings/webhook", json=cfg).status_code == 200
+
+    msgs = [r.message for r in caplog.records]
+    assert any(m.startswith("Target created") for m in msgs)
+    assert any(m.startswith("Target updated") for m in msgs)
+    assert any(m.startswith("Target deleted") for m in msgs)
+    assert any(m.startswith("Webhook config updated") for m in msgs)
+
+
 def test_http_success_codes_range_validation(logged_client: TestClient):
     """期望状态码必须落在 100-599：创建与更新均被 422 拒绝。"""
     bad = {"ip": "1.1.1.1", "check_method": "http", "http_success_codes": [200, 999]}
