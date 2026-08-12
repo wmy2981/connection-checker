@@ -1,4 +1,4 @@
-# Python
+# ===== Python =====
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -11,24 +11,32 @@ htmlcov/
 build/
 dist/
 
-# Node / frontend
+# ===== Node / frontend =====
 node_modules/
 frontend/dist/
+frontend/.vite/
 backend/app/static/
 *.tsbuildinfo
 npm-debug.log*
+*.local
 
-# Runtime data
+# ===== 环境变量（本地敏感配置，勿提交）=====
+.env
+.env.*
+!.env.example
+
+# ===== Runtime data =====
 data/
 *.bak
 
-# Editor / OS
+# ===== Editor / OS =====
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
 *.log
 
+# ===== Agent =====
 .claude/
 .agents/
 CLAUDE.local.md
