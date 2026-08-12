@@ -18,6 +18,17 @@ _LEVELS = {
     "ERROR": logging.ERROR,
 }
 
+
+class _AccessFilter(logging.Filter):
+    """uvicorn.access 的 HTTP 访问记录是 INFO 级（setLevel 挡不住），
+
+    只在全局级别为 DEBUG 时放行，实现「默认级别下访问日志不刷屏」。
+    filter 动态读取根 logger 当前级别，热更新后无需重新装配。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return logging.getLogger().getEffectiveLevel() <= logging.DEBUG
+
 # filename:lineno 精确到产生日志的 Python 文件与行号，供日志按来源筛选
 _FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
 
@@ -86,11 +97,14 @@ def configure(log_dir: Path, level: str = "INFO") -> None:
         lg.handlers.clear()
         lg.propagate = True
         lg.setLevel(lvl)
-    # HTTP 访问日志（每次请求一行）过于详细，固定 DEBUG 级：默认级别下不刷屏
+    # HTTP 访问日志（每次请求一行）过于详细：固定 DEBUG 级 + 过滤器，
+    # 仅全局 DEBUG 时写入（INFO/WARN/ERROR 级别下不刷屏）
     access = logging.getLogger("uvicorn.access")
     access.handlers.clear()
     access.propagate = True
     access.setLevel(logging.DEBUG)
+    access.filters.clear()
+    access.addFilter(_AccessFilter())
 
 
 def apply_level(level: str) -> None:

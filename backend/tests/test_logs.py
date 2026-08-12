@@ -5,7 +5,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from app.logging_setup import DailyFileHandler, apply_level, parse_level
+from app.logging_setup import DailyFileHandler, apply_level, configure, parse_level
 from app.models import AppSettings
 
 
@@ -199,12 +199,28 @@ def test_app_settings_log_level_validation():
 
 def test_uvicorn_access_level_pinned_to_debug(tmp_path):
     """HTTP 访问日志固定 DEBUG 级，热更新不改变该固定行为。"""
-    from app.logging_setup import configure
-
     configure(tmp_path, "INFO")
     assert logging.getLogger("uvicorn").getEffectiveLevel() == logging.INFO
     assert logging.getLogger("uvicorn.access").getEffectiveLevel() == logging.DEBUG
 
     apply_level("ERROR")
     assert logging.getLogger("uvicorn").getEffectiveLevel() == logging.ERROR
+
+
+def test_uvicorn_access_only_written_at_debug_level(tmp_path):
+    """HTTP 访问日志仅在全局 DEBUG 级别写入文件，INFO/WARN/ERROR 不刷屏。"""
+    configure(tmp_path, "INFO")
+    access = logging.getLogger("uvicorn.access")
+
+    def log_text() -> str:
+        return "".join(f.read_text(encoding="utf-8") for f in tmp_path.glob("app-*.log"))
+
+    access.info("GET /api/v1/targets 200")
+    access.warning("GET /api/v1/results 500")
+    assert "GET /api/v1/targets" not in log_text()
+    assert "GET /api/v1/results" not in log_text()
+
+    apply_level("DEBUG")
+    access.info("GET /api/v1/stats 200")
+    assert "GET /api/v1/stats" in log_text()
     assert logging.getLogger("uvicorn.access").getEffectiveLevel() == logging.DEBUG
