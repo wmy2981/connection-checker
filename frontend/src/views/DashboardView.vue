@@ -265,12 +265,20 @@ function filterByTarget(targetId: string) {
 }
 
 function runAll() {
-  const count = stats.value?.enabled_targets ?? 0
-  message.success(`已触发 ${count} 个目标检查`)
   running.value = true
   api
     .runChecks()
-    .then(refresh)
+    .then((rs) => {
+      const fails = rs.filter((r) => r.status !== 'success').length
+      if (rs.length === 0) {
+        message.warning('没有启用的检查目标')
+      } else if (fails > 0) {
+        message.warning(`检查完成：${rs.length - fails} 个正常，${fails} 个异常`)
+      } else {
+        message.success(`检查完成：全部 ${rs.length} 个目标正常`)
+      }
+      refresh()
+    })
     .catch((e) => message.error(errText(e)))
     .finally(() => {
       running.value = false
