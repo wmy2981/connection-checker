@@ -150,17 +150,19 @@ const pingStats = computed(() => {
   }
 })
 
-// http 关键指标（最终 URL / 状态码 / TTFB / 响应大小 / 重定向数 / TLS 版本）
+// http 关键指标（最终 URL / 状态码 / TTFB / 响应大小 / 重定向数 / TLS 版本与颁发者）
 const httpMeta = computed(() => {
   const e = detail.value?.extra
   if (detail.value?.check_method !== 'http' || !e) return null
+  const tls = e.tls as { version?: string; issuer?: string } | undefined
   return {
     finalUrl: e.final_url as string | undefined,
     status: e.http_status as number | undefined,
     ttfb: e.ttfb_ms as number | undefined,
     size: e.response_size as number | undefined,
     redirects: e.redirects as number | undefined,
-    tlsVersion: (e.tls as { version?: string } | undefined)?.version,
+    tlsVersion: tls?.version,
+    tlsIssuer: tls?.issuer,
   }
 })
 
@@ -726,7 +728,8 @@ const columns: DataTableColumns<CheckResult> = [
           <template v-if="httpMeta.ttfb != null">TTFB {{ httpMeta.ttfb }}ms · </template>
           <template v-if="httpMeta.size != null">{{ httpMeta.size }}B · </template>
           <template v-if="httpMeta.redirects != null">重定向 {{ httpMeta.redirects }} 次 · </template>
-          <template v-if="httpMeta.tlsVersion">TLS {{ httpMeta.tlsVersion }}</template>
+          <template v-if="httpMeta.tlsVersion">TLS {{ httpMeta.tlsVersion }} · </template>
+          <template v-if="httpMeta.tlsIssuer">签发 {{ httpMeta.tlsIssuer }}</template>
         </n-descriptions-item>
         <n-descriptions-item v-if="dnsMeta" label="解析结果">
           {{ dnsMeta.resolved.length ? dnsMeta.resolved.join('、') : '无地址' }}
