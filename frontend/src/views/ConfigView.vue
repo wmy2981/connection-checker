@@ -341,6 +341,10 @@ async function loadWebhook() {
 
 async function testWebhook() {
   const url = webhookUrl.value.trim()
+  if (!url) {
+    message.warning('请先填写 Webhook 地址')
+    return
+  }
   webhookTesting.value = true
   try {
     const r = await api.testWebhook(url)
