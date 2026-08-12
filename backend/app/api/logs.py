@@ -144,25 +144,27 @@ def _filtered(
         yield entry
 
 
-# 来源枚举 TTL 缓存：避免每次打开日志弹窗都全量解析历史文件（来源变化不频繁）
-_source_cache: tuple[float, list[str]] | None = None
+# 来源枚举 TTL 缓存：避免每次打开日志弹窗都全量解析历史文件（来源变化不频繁）。
+# 按日志目录分键，防止不同数据目录（测试实例、多实例）之间互相串扰。
+_source_cache: dict[str, tuple[float, list[str]]] = {}
 SOURCE_CACHE_TTL = 30.0
 
 
 @router.get("/sources")
 async def log_sources(request: Request) -> dict:
     """日志中出现过的来源（文件名或模块名，去重排序），供前端筛选下拉。"""
-    global _source_cache
+    key = str(request.app.state.settings.data_dir / "logs")
     now = time.monotonic()
-    if _source_cache is not None and now - _source_cache[0] < SOURCE_CACHE_TTL:
-        return {"sources": _source_cache[1]}
+    hit = _source_cache.get(key)
+    if hit is not None and now - hit[0] < SOURCE_CACHE_TTL:
+        return {"sources": hit[1]}
     sources: set[str] = set()
     for entry in _entries(request):
         origin = entry["source"] or entry["name"]
         # source 形如 scheduler.py:72，取文件名部分
         sources.add(origin.split(":", 1)[0])
     result = sorted(sources)
-    _source_cache = (now, result)
+    _source_cache[key] = (now, result)
     return {"sources": result}
 
 
