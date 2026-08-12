@@ -162,6 +162,7 @@ async function fetchResults() {
 }
 
 function refresh() {
+  lastFullRefresh = Date.now()
   void fetchStats()
   void fetchResults()
   void fetchTrend()
@@ -239,10 +240,36 @@ async function logout() {
 
 // --- SSE 实时推送 ---
 let es: EventSource | null = null
+let lastFullRefresh = 0
+// 全量刷新节流窗口（毫秒）：目标卡即时局部更新，统计/趋势/表格最多每窗口刷新一次
+const SSE_REFRESH_THROTTLE = 10_000
+
+function onSseResult(ev: Event) {
+  // 目标卡即时局部更新：避免每次事件都全量拉 3 个接口
+  if (stats.value) {
+    try {
+      const r = JSON.parse((ev as MessageEvent).data) as CheckResult
+      const t = stats.value.target_status.find((x) => x.target_id === r.target_id)
+      if (t) {
+        t.last_status = r.status
+        t.last_latency_ms = r.latency_ms
+        t.last_checked_at = r.checked_at
+        t.last_message = r.message
+      }
+    } catch {
+      /* 解析失败仅跳过局部更新 */
+    }
+  }
+  const now = Date.now()
+  if (now - lastFullRefresh >= SSE_REFRESH_THROTTLE) {
+    lastFullRefresh = now
+    refresh()
+  }
+}
 
 function connectSse() {
   es = new EventSource('/api/v1/stream')
-  es.addEventListener('result', () => refresh())
+  es.addEventListener('result', onSseResult)
   es.onerror = () => {
     /* EventSource 自动重连 */
   }
