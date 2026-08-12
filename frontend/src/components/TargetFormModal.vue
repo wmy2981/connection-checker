@@ -208,10 +208,10 @@ function submit() {
           <n-switch v-model:value="form.enabled" />
         </n-form-item>
         <n-form-item label="告警推送">
-          <n-switch v-model:value="form.notify_enabled" />
-        </n-form-item>
-        <n-form-item label=" " :show-feedback="false">
-          <span class="hint">关闭后该目标不推送告警与恢复通知</span>
+          <n-space vertical style="width: 100%">
+            <n-switch v-model:value="form.notify_enabled" />
+            <span class="hint">关闭后该目标不推送告警与恢复通知</span>
+          </n-space>
         </n-form-item>
 
         <n-form-item label="时间窗口">
