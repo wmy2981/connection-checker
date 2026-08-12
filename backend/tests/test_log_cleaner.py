@@ -40,6 +40,33 @@ async def test_delete_mode_removes_old_logs(tmp_path):
     assert recent.exists()
 
 
+async def test_delete_mode_unlink_failure_keeps_file_and_continues(tmp_path, monkeypatch, caplog):
+    """单个日志删除失败（如被占用）：ERROR 日志 + 文件保留，其余文件照常清理。"""
+    cleaner, store, _, settings = _fixtures(tmp_path)
+    old1, old2 = _make_logs(settings.data_dir / "logs", 40, 41)
+    await store.update_app_settings(
+        AppSettings(log_cleanup_mode="delete", log_retention_days=30)
+    )
+
+    # 第一个文件删除失败（模拟 Windows 上文件被句柄占用），其余文件正常
+    from pathlib import Path
+
+    real_unlink = Path.unlink
+
+    def guarded_unlink(self, *a, **k):
+        if self == old1:
+            raise PermissionError(13, "Permission denied")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", guarded_unlink)
+    with caplog.at_level(logging.ERROR, logger="app.log_cleaner"):
+        await cleaner.run_once()
+
+    assert old1.exists()  # 失败文件保留，下次轮询重试
+    assert not old2.exists()  # 未被失败的旧文件阻塞
+    assert any("Failed to delete old log" in r.message for r in caplog.records)
+
+
 async def test_none_mode_keeps_all_logs(tmp_path):
     cleaner, store, _, settings = _fixtures(tmp_path)
     old = _make_logs(settings.data_dir / "logs", 40)[0]
