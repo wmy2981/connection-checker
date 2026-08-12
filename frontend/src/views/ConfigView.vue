@@ -524,6 +524,21 @@ function openEdit(t: Target) {
   modalShow.value = true
 }
 
+// 复制目标：同一份参数创建新目标（名称加「副本」后缀，新 id 由后端生成）
+async function duplicate(t: Target) {
+  const { id: _id, created_at: _created, updated_at: _updated, ...rest } = t
+  try {
+    await api.createTarget({
+      ...rest,
+      name: t.name ? `${t.name}（副本）` : null,
+    })
+    message.success('已复制为新目标')
+    await load()
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
 async function save(payload: TargetInput) {
   try {
     if (editing.value) {
@@ -643,7 +658,7 @@ const columns: DataTableColumns<Target> = [
   {
     title: '操作',
     key: 'action',
-    width: 220,
+    width: 280,
     render: (t) =>
       h(NSpace, { size: 4 }, () => [
         t.enabled
@@ -663,6 +678,11 @@ const columns: DataTableColumns<Target> = [
           NButton,
           { size: 'tiny', secondary: true, onClick: () => openEdit(t) },
           { default: () => '编辑' },
+        ),
+        h(
+          NButton,
+          { size: 'tiny', secondary: true, onClick: () => duplicate(t) },
+          { default: () => '复制' },
         ),
         h(
           NPopconfirm,
