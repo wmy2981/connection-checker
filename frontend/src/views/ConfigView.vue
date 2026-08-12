@@ -331,6 +331,7 @@ async function saveBrandIcon() {
   brandSaving.value = true
   try {
     appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    window.dispatchEvent(new Event('cc-brand-icon-changed'))
     message.success('品牌图标已保存')
   } catch (e) {
     message.error(errText(e))
@@ -344,6 +345,7 @@ async function clearBrandIcon() {
   try {
     appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: null })
     brandIconInput.value = ''
+    window.dispatchEvent(new Event('cc-brand-icon-changed'))
     message.success('已恢复默认图标')
   } catch (e) {
     message.error(errText(e))

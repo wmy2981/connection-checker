@@ -16,7 +16,7 @@ function applyFavicon(src: string) {
   link.href = src
 }
 
-onMounted(async () => {
+async function load() {
   try {
     const s = await api.getAppSettings()
     icon.value = s.brand_icon
@@ -24,6 +24,12 @@ onMounted(async () => {
   } catch {
     /* 401 由 client 处理 */
   }
+}
+
+onMounted(() => {
+  void load()
+  // 配置页保存/清除品牌图标后即时刷新（同页面组件不重挂）
+  window.addEventListener('cc-brand-icon-changed', load)
 })
 </script>
 
