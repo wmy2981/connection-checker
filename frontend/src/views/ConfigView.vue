@@ -325,10 +325,16 @@ async function toggleEnabled(t: Target, value: boolean) {
   }
 }
 
+const statusLabels: Record<string, string> = { success: '成功', fail: '失败', timeout: '超时', error: '错误' }
+
 async function runOne(t: Target) {
   try {
     const r = await api.runChecks(t.id)
-    message.success(`检查完成：${r[0]?.status ?? '完成'}`)
+    const status = r[0]?.status
+    const text = `检查完成：${statusLabels[status ?? ''] ?? '完成'}`
+    if (status === 'fail' || status === 'error') message.error(text)
+    else if (status === 'timeout') message.warning(text)
+    else message.success(text)
   } catch (e) {
     message.error(errText(e))
   }
