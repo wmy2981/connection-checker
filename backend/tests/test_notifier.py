@@ -103,6 +103,36 @@ async def test_notifier_global_off_overrides_target_on(tmp_path, monkeypatch):
     assert sent == []
 
 
+async def test_notifier_alerts_when_enabled_after_long_streak(tmp_path, monkeypatch):
+    """webhook 关闭期间连败数超过阈值，重新启用后首次跨阈值仍触发告警。"""
+    store = ConfigStore(tmp_path / "data")
+    await store.update_webhook_config(
+        WebhookConfig(enabled=False, url="http://example.invalid", fail_threshold=3)
+    )
+    notifier = Notifier(store)
+    sent: list[tuple[str, str]] = []
+
+    async def _send(kind, summary, result, url):
+        sent.append((kind, summary))
+
+    monkeypatch.setattr(notifier, "_send", _send)
+
+    # 关闭期间累计 5 次失败（超过阈值但未推送）
+    for _ in range(5):
+        await notifier.observe(_result("t1", "fail"))
+    assert sent == []
+
+    # 重新启用 webhook 后，下一次失败跨越阈值 → 告警（附当前累计次数）
+    await store.update_webhook_config(
+        WebhookConfig(enabled=True, url="http://example.invalid", fail_threshold=3)
+    )
+    await notifier.observe(_result("t1", "fail"))
+    assert sent == [("告警", "连续 6 次检查失败")]
+    # 已告警后继续失败不重复推送
+    await notifier.observe(_result("t1", "fail"))
+    assert len(sent) == 1
+
+
 async def test_notifier_uses_updated_threshold(tmp_path, monkeypatch):
     store = ConfigStore(tmp_path / "data")
     await store.update_webhook_config(

@@ -62,7 +62,9 @@ class Notifier:
             n,
             cfg.fail_threshold,
         )
-        if n == cfg.fail_threshold:
+        # 计数独立于告警配置增长（webhook 关闭期间也可能超过阈值），
+        # 重新启用后首次跨阈值仍触发；已告警过的连续故障不重复推送
+        if n >= cfg.fail_threshold and tid not in self._alerted:
             self._alerted.add(tid)
             self._last_fail_count[tid] = n
             logger.warning(
