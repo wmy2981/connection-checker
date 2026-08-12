@@ -108,6 +108,17 @@ const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'defau
 
 const methodLabel: Record<string, string> = { ping: 'Ping', port: '端口', http: 'HTTP', dns: 'DNS' }
 
+// 目标卡排序：异常目标（失败/超时/错误）置顶，同等级保持添加顺序（稳定排序）
+const sortedTargets = computed(() => {
+  const order: Record<string, number> = { fail: 0, timeout: 1, error: 2 }
+  const list = stats.value?.target_status ?? []
+  return [...list].sort((a, b) => {
+    const oa = a.last_status ? (order[a.last_status] ?? 3) : 3
+    const ob = b.last_status ? (order[b.last_status] ?? 3) : 3
+    return oa - ob
+  })
+})
+
 // 近 24h 可用率着色：≥99.9% 绿、≥95% 橙、其余红
 function uptimeClass(pct: number): string {
   if (pct >= 99.9) return 'up-good'
@@ -506,7 +517,7 @@ const columns: DataTableColumns<CheckResult> = [
           <n-card title="目标状态" size="small">
             <div v-if="stats && stats.target_status.length" class="targets-grid">
               <div
-                v-for="t in stats.target_status"
+                v-for="t in sortedTargets"
                 :key="t.target_id"
                 class="target-card"
                 :class="[
