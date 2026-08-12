@@ -29,6 +29,7 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { copyText } from '@/composables/useClipboard'
+import { formatDateTime } from '@/composables/useAppTime'
 import type { AppSettings, CheckResult, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
 
 const router = useRouter()
@@ -632,7 +633,12 @@ const columns: DataTableColumns<Target> = [
       return h(NSpace, { size: 4, align: 'center' }, () => [
         h(
           NTag,
-          { size: 'small', bordered: false, type: statusTag[status].type },
+          {
+            size: 'small',
+            bordered: false,
+            type: statusTag[status].type,
+            title: s.last_checked_at ? `最近检查：${formatDateTime(s.last_checked_at)}` : undefined,
+          },
           { default: () => statusTag[status].label },
         ),
         s.last_latency_ms != null ? h('span', { class: 'dim' }, `${s.last_latency_ms}ms`) : null,
