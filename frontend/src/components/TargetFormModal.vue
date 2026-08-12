@@ -196,10 +196,15 @@ function submit() {
           </n-space>
         </n-form-item>
         <n-form-item label="名称">
-          <n-input v-model:value="form.name" placeholder="可选，便于识别" />
+          <n-input v-model:value="form.name" placeholder="可选，便于识别" :maxlength="100" />
         </n-form-item>
         <n-form-item label="IP / 主机名" required>
-          <n-input ref="ipInputRef" v-model:value="form.ip" placeholder="如 8.8.8.8 或 example.com" />
+          <n-input
+            ref="ipInputRef"
+            v-model:value="form.ip"
+            placeholder="如 8.8.8.8 或 example.com"
+            :maxlength="255"
+          />
         </n-form-item>
         <n-form-item label="检查方式" required>
           <n-select v-model:value="form.check_method" :options="methodOptions" />
