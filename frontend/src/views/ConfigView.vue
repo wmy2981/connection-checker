@@ -369,11 +369,13 @@ const columns: DataTableColumns<Target> = [
     width: 220,
     render: (t) =>
       h(NSpace, { size: 4 }, () => [
-        h(
-          NButton,
-          { size: 'tiny', secondary: true, type: 'primary', onClick: () => runOne(t) },
-          { default: () => '检查' },
-        ),
+        t.enabled
+          ? h(
+              NButton,
+              { size: 'tiny', secondary: true, type: 'primary', onClick: () => runOne(t) },
+              { default: () => '检查' },
+            )
+          : null,
         h(
           NButton,
           { size: 'tiny', secondary: true, onClick: () => openEdit(t) },
