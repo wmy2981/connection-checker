@@ -27,27 +27,42 @@ function buildQuery(params: ResultFilterParams): string {
   return s ? `?${s}` : ''
 }
 
+// 导出下载超时（毫秒）：大结果集 blob 下载比普通请求宽松
+const EXPORT_TIMEOUT_MS = 60_000
+
 async function downloadExport(
   path: string,
   params: ResultFilterParams,
   fallbackName = 'export.txt',
 ): Promise<void> {
   const query = buildQuery(params)
-  const res = await fetch(`${path}${query}`)
-  if (res.status === 401) {
-    window.location.href = '/login'
-    return
+  const controller = new AbortController()
+  // 超时覆盖整个导出：响应体（blob）阶段同样受保护，停滞的流会在 60s 后中止
+  const timer = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${path}${query}`, { signal: controller.signal })
+    if (res.status === 401) {
+      window.location.href = '/login'
+      return
+    }
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const cd = res.headers.get('Content-Disposition')
+    const m = cd?.match(/filename="([^"]+)"/)
+    a.download = m?.[1] ?? fallbackName
+    a.href = url
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new ApiError(408, '导出超时，请缩小筛选范围后重试')
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
   }
-  if (!res.ok) throw new ApiError(res.status, res.statusText)
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  const cd = res.headers.get('Content-Disposition')
-  const m = cd?.match(/filename="([^"]+)"/)
-  a.download = m?.[1] ?? fallbackName
-  a.href = url
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 export const api = {
@@ -78,7 +93,10 @@ export const api = {
       body: JSON.stringify(targetId ? { target_id: targetId } : {}),
     }),
   stats: () => request<StatsSummary>('/stats/summary'),
-  statsTrend: (hours = 24) => request<TrendData>(`/stats/trend?hours=${hours}`),
+  statsTrend: (hours = 24, targetId?: string, unit: 'hour' | 'day' = 'hour') =>
+    request<TrendData>(
+      `/stats/trend?hours=${hours}&unit=${unit}${targetId ? `&target_id=${encodeURIComponent(targetId)}` : ''}`,
+    ),
   getAppSettings: () => request<AppSettings>('/settings/app'),
   updateAppSettings: (cfg: AppSettings) =>
     request<AppSettings>('/settings/app', { method: 'PUT', body: JSON.stringify(cfg) }),
@@ -98,7 +116,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(cfg),
     }),
-  getApiToken: () => request<{ token: string | null }>('/settings/api-token'),
+  getApiToken: () => request<{ has_token: boolean }>('/settings/api-token'),
   generateApiToken: () =>
     request<{ token: string }>('/settings/api-token/generate', {
       method: 'POST',

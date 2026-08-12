@@ -230,8 +230,16 @@ class ResultStore:
         self._load()
         if self._s3 is not None:
             self._dirty_dates.update(self._local_dates())
-            # 启动时尽力补传本地历史到 S3（失败仅留日志，日期保留待重试，不阻塞启动）
-            self._sync_dirty()
+            # 补传交给后台任务，不在启动路径上同步等待 S3（慢/不可达时不阻塞启动）
+            self._schedule_backfill()
+
+    def _schedule_backfill(self) -> None:
+        """S3 新启用（启动或热切换）后后台补传本地历史；无事件循环时留给下次 append。"""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._backfill_s3_task(), name="s3-backfill")
 
     def _load(self) -> None:
         merge_local = False
@@ -242,8 +250,15 @@ class ResultStore:
             except Exception as e:  # noqa: BLE001
                 logger.warning("S3 results load failed: %s; falling back to local file", e)
         self._load_local(merge=merge_local)
+        # S3 对象列表返回顺序不保证时间序，统一按检查时间升序（deque 尾部 = 最新）
+        self._results = deque(sorted(self._results, key=lambda r: r.checked_at))
+        self._trim_to_max()
+
+    def _trim_to_max(self) -> None:
+        """裁剪超出上限的最旧记录；_seen_ids 同步收缩，避免无界增长。"""
         while len(self._results) > self.max_records:
-            self._results.popleft()
+            old = self._results.popleft()
+            self._seen_ids.discard(old.id)
 
     def _load_from_s3(self) -> None:
         for object_name in self._s3.list_objects(self._s3_prefix):
@@ -298,12 +313,7 @@ class ResultStore:
         if self._s3 is not None and not had_s3:
             # S3 新启用：本地历史数据也要补传（append 只同步当天）
             self._dirty_dates.update(self._local_dates())
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None  # 无事件循环（如单测直调）：补传留给下次 append
-            if loop is not None:
-                loop.create_task(self._backfill_s3_task(), name="s3-backfill")
+            self._schedule_backfill()
         logger.info(
             "Result storage mode=%s s3=%s",
             self._storage_mode,
@@ -315,12 +325,17 @@ class ResultStore:
         return {r.checked_at.astimezone().strftime("%Y-%m-%d") for r in self._results}
 
     async def _backfill_s3_task(self) -> None:
-        """S3 新启用后的历史数据后台补传（持锁防与 append 并发读 deque）。"""
+        """S3 新启用后的历史数据后台补传（锁内取快照，同步在锁外执行）。"""
         async with self._lock:
-            try:
-                await asyncio.to_thread(self._sync_dirty)
-            except Exception as e:  # noqa: BLE001
-                logger.error("S3 results backfill failed: %s", e)
+            snapshot = list(self._results)
+        await self._sync_s3_async(snapshot)
+
+    async def _sync_s3_async(self, snapshot: list[CheckResult]) -> None:
+        """把 dirty 日期同步到 S3；失败仅留日志，日期保留下次 append 自动重试。"""
+        try:
+            await asyncio.to_thread(self._sync_dirty, snapshot)
+        except Exception as e:  # noqa: BLE001
+            logger.error("S3 results sync failed: %s; results kept in local file", e)
 
     def _persist_all(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -333,20 +348,19 @@ class ResultStore:
         if max_records == self.max_records:
             return
         self.max_records = max_records
-        excess = len(self._results) - self.max_records
-        if excess > 0:
-            for _ in range(excess):
-                self._results.popleft()
+        before = len(self._results)
+        self._trim_to_max()
+        if len(self._results) < before:
             self._persist_all()
 
     async def append(self, result: CheckResult) -> None:
         trimmed = False
+        sync_snapshot: list[CheckResult] | None = None
         async with self._lock:
             self._results.append(result)
+            self._seen_ids.add(result.id)
             if len(self._results) > self.max_records:
-                excess = len(self._results) - self.max_records
-                for _ in range(excess):
-                    self._results.popleft()
+                self._trim_to_max()
                 trimmed = True
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as f:
@@ -356,36 +370,41 @@ class ResultStore:
             if self._s3 is not None:
                 # 当天日期必然需要同步；失败的旧日期也保留在 _dirty_dates 里重试
                 self._dirty_dates.add(result.checked_at.astimezone().strftime("%Y-%m-%d"))
-                try:
-                    await asyncio.to_thread(self._sync_dirty)
-                except Exception as e:  # noqa: BLE001
-                    logger.error(
-                        "S3 results sync failed: %s; results kept in local file", e
-                    )
+                sync_snapshot = list(self._results)
         await self._broadcast(result)
+        if sync_snapshot is not None:
+            # S3 同步移出临界区（锁内只做本地写入），慢/故障 S3 不冻结读写接口
+            await self._sync_s3_async(sync_snapshot)
 
-    def _sync_dirty(self) -> None:
-        """把待补传日期逐个同步到 S3；失败中断并保留日期，下次 append 自动重试。"""
+    def _sync_dirty(self, snapshot: list[CheckResult]) -> None:
+        """把待补传日期逐个同步到 S3；单个日期失败不中断其余日期，失败日期保留重试。"""
         for date_str in sorted(self._dirty_dates):
             try:
-                self._sync_to_s3(date_str)
+                ok = self._sync_to_s3(date_str, snapshot)
             except Exception as e:  # noqa: BLE001
                 logger.error("S3 results sync failed for %s: %s", date_str, e)
-                return
+                continue
+            if not ok:
+                continue  # 拉取失败未同步，日期保留待下次重试
             self._dirty_dates.discard(date_str)
 
-    def _sync_to_s3(self, date_str: str) -> None:
+    def _sync_to_s3(self, date_str: str, snapshot: list[CheckResult]) -> bool:
         """把指定日期当天的记录全量合并上传为 S3 对象（按 id 去重，永久保留）。
 
-        先拉取已有对象再并入新行，避免本地裁剪导致 S3 历史丢失。
+        先拉取已有对象再并入新行，避免本地裁剪导致 S3 历史丢失；拉取失败时
+        无法安全合并，跳过本次上传（返回 False，日期保留待重试），绝不覆盖既有对象。
         """
         object_name = f"{self._s3_prefix}{date_str}.jsonl"
-        merged: dict[str, str] = {}
         try:
             data = self._s3.get_data(object_name)
         except Exception as e:  # noqa: BLE001
-            logger.warning("Failed to fetch existing S3 object %s: %s", object_name, e)
-            data = None
+            logger.warning(
+                "Failed to fetch existing S3 object %s: %s; deferring sync",
+                object_name,
+                e,
+            )
+            return False
+        merged: dict[str, str] = {}
         if data:
             for line in data.decode("utf-8").splitlines():
                 line = line.strip()
@@ -395,7 +414,7 @@ class ResultStore:
                     merged[CheckResult.model_validate_json(line).id] = line
                 except Exception:
                     continue
-        for r in self._results:
+        for r in snapshot:
             if r.checked_at.astimezone().strftime("%Y-%m-%d") == date_str:
                 merged[r.id] = r.model_dump_json()
         payload = "".join(v + "\n" for v in merged.values())
@@ -404,13 +423,18 @@ class ResultStore:
         logger.debug(
             "Synced %d records to s3://%s/%s", len(merged), self._s3.bucket, object_name
         )
+        return True
 
     @staticmethod
     def _matches(f: ResultFilter, r: CheckResult) -> bool:
-        # status / target_id 支持逗号分隔多值（前端多选）
+        # status / check_method / target_id 支持逗号分隔多值（前端多选）
         if f.status:
             statuses = {s for s in f.status.split(",") if s and s != "all"}
             if statuses and r.status not in statuses:
+                return False
+        if f.check_method:
+            methods = {s for s in f.check_method.split(",") if s}
+            if methods and r.check_method not in methods:
                 return False
         if f.ip and not ip_matches(f.ip, r.ip):
             return False
@@ -472,16 +496,35 @@ class ResultStore:
             all_results = list(self._results)
         return [r for r in reversed(all_results) if self._matches(f, r)]
 
-    async def trend(self, hours: int = 24) -> list[dict[str, Any]]:
-        """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。"""
+    async def trend(
+        self,
+        hours: int = 24,
+        target_id: str | None = None,
+        unit: str = "hour",
+    ) -> list[dict[str, Any]]:
+        """聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。
+
+        unit=hour：按小时桶；unit=day：按天桶（小时数折算为天数）。
+        target_id 指定时只统计该目标，用于单目标趋势排查。
+        """
         async with self._lock:
             results = list(self._results)
         now = datetime.now().astimezone()
-        base = now.replace(minute=0, second=0, microsecond=0)
-        cutoff = base - timedelta(hours=hours - 1)
+        if unit == "day":
+            count = max(1, hours // 24)
+            base = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            step = timedelta(days=1)
+            cutoff = base - timedelta(days=count - 1)
+            fmt = "%Y-%m-%d"
+        else:
+            count = hours
+            base = now.replace(minute=0, second=0, microsecond=0)
+            step = timedelta(hours=1)
+            cutoff = base - timedelta(hours=count - 1)
+            fmt = "%Y-%m-%dT%H:00"
         buckets: dict[str, dict[str, Any]] = {}
-        for i in range(hours):
-            key = (cutoff + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00")
+        for i in range(count):
+            key = (cutoff + i * step).strftime(fmt)
             buckets[key] = {
                 "bucket": key,
                 "total": 0,
@@ -493,10 +536,12 @@ class ResultStore:
             }
         lat: dict[str, list[float]] = {}
         for r in results:
+            if target_id is not None and r.target_id != target_id:
+                continue
             t = r.checked_at.astimezone()
             if t < cutoff:
                 continue
-            b = buckets.get(t.strftime("%Y-%m-%dT%H:00"))
+            b = buckets.get(t.strftime(fmt))
             if b is None:
                 continue
             b["total"] += 1
@@ -508,6 +553,34 @@ class ResultStore:
             if vals:
                 b["avg_latency_ms"] = round(sum(vals) / len(vals), 1)
         return list(buckets.values())
+
+    async def uptime_per_target(
+        self, target_ids: list[str], hours: int = 24
+    ) -> dict[str, dict[str, Any]]:
+        """近 N 小时内每个目标的总检查数与成功率（无结果时 uptime_pct 为 None）。
+
+        窗口为滚动时间（now - hours），与 trend 的整点桶不同；用于目标可用率展示。
+        """
+        async with self._lock:
+            results = list(self._results)
+        cutoff = datetime.now().astimezone() - timedelta(hours=hours)
+        agg: dict[str, dict[str, Any]] = {}
+        for tid in target_ids:
+            agg[tid] = {"total": 0, "success": 0, "uptime_pct": None}
+        for r in results:
+            t = r.checked_at.astimezone()
+            if t < cutoff:
+                continue
+            a = agg.get(r.target_id)
+            if a is None:
+                continue
+            a["total"] += 1
+            if r.status == "success":
+                a["success"] += 1
+        for a in agg.values():
+            if a["total"]:
+                a["uptime_pct"] = round(a["success"] / a["total"] * 100, 1)
+        return agg
 
     async def latest_per_target(self, target_ids: list[str]) -> dict[str, CheckResult]:
         """返回每个目标最近一条结果（按时间倒序找首个）。"""

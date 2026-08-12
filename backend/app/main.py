@@ -38,10 +38,11 @@ async def lifespan(app: FastAPI):
     secrets_store = SecretsStore(cfg.data_dir)
     s3_cfg = await config_store.get_s3_config()
     s3_store = None
+    creds_ok = bool(secrets_store.s3_access_id and secrets_store.s3_access_key)
     if (
         app_cfg.storage_mode != "local"
         and s3_cfg.enabled
-        and (secrets_store.s3_access_id and secrets_store.s3_access_key)
+        and creds_ok
     ):
         s3_store = S3Storage(
             s3_cfg, secrets_store.s3_access_id, secrets_store.s3_access_key
@@ -51,6 +52,15 @@ async def lifespan(app: FastAPI):
             app_cfg.storage_mode,
             s3_cfg.endpoint,
             s3_cfg.bucket,
+        )
+    elif app_cfg.storage_mode != "local":
+        # 配置要求 S3 但不可用：静默降级本地会让运维误以为数据在 S3
+        logger.warning(
+            "storage_mode=%s but S3 is not usable (enabled=%s credentials=%s); "
+            "results will stay local only",
+            app_cfg.storage_mode,
+            s3_cfg.enabled,
+            creds_ok,
         )
     result_store = ResultStore(
         cfg.data_dir / "results.jsonl",

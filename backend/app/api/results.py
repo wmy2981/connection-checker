@@ -18,6 +18,7 @@ router = APIRouter(prefix="/results", tags=["results"], dependencies=[Depends(re
 async def query_results(
     request: Request,
     status: str | None = Query(default=None, description="逗号分隔多值，如 success,fail"),
+    check_method: str | None = Query(default=None, description="逗号分隔多值，如 ping,http"),
     ip: str | None = Query(default=None),
     target_name: str | None = Query(default=None, description="匹配目标名称或 IP"),
     target_id: str | None = Query(default=None, description="逗号分隔多值"),
@@ -32,6 +33,7 @@ async def query_results(
     store: ResultStore = request.app.state.result_store
     filt = ResultFilter(
         status=status,
+        check_method=check_method,
         ip=ip,
         target_name=target_name,
         target_id=target_id,
@@ -48,6 +50,7 @@ async def query_results(
 
 def _export_filters(
     status: str | None = Query(default=None),
+    check_method: str | None = Query(default=None, description="逗号分隔多值，如 ping,http"),
     ip: str | None = Query(default=None),
     target_name: str | None = Query(default=None, description="匹配目标名称或 IP"),
     target_id: str | None = Query(default=None),
@@ -59,6 +62,7 @@ def _export_filters(
 ) -> ResultFilter:
     return ResultFilter(
         status=status,
+        check_method=check_method,
         ip=ip,
         target_name=target_name,
         target_id=target_id,

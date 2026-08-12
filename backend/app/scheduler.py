@@ -161,16 +161,40 @@ class Scheduler:
         return result
 
     async def manual_run(self, target_id: str | None = None) -> list[CheckResult]:
-        """手动立即检查。target_id 为空则检查全部启用的目标。"""
+        """手动立即检查。target_id 为空则并发检查全部启用的目标（限流 10 并发）。"""
         targets = await self.config_store.list_targets()
-        results: list[CheckResult] = []
-        for t in targets:
-            if not t.enabled:
-                continue
-            if target_id is not None and t.id != target_id:
-                continue
-            results.append(await self.run_check(t))
-        return results
+        selected = [
+            t
+            for t in targets
+            if t.enabled and (target_id is None or t.id == target_id)
+        ]
+        if not selected:
+            return []
+        sem = asyncio.Semaphore(10)
+
+        async def _guarded(t: Target) -> CheckResult:
+            # 单个目标异常（防御性，检查器通常不抛）不拖垮其他目标，
+            # 但以 error 结果返回：崩溃在界面可见，而不是被静默丢弃（前端会误报「全部正常」）
+            try:
+                async with sem:
+                    return await self.run_check(t)
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    "Manual check failed for %s (%s): %s", t.name or t.ip, t.id, e
+                )
+                return CheckResult(
+                    target_id=t.id,
+                    target_name=t.name,
+                    ip=t.ip,
+                    check_method=t.check_method,
+                    status="error",
+                    latency_ms=None,
+                    message=f"check crashed: {e}",
+                    extra={},
+                )
+
+        results = await asyncio.gather(*(_guarded(t) for t in selected))
+        return list(results)
 
     async def _watch_config(self) -> None:
         """检测 config.json 被外部编辑并热重载。"""

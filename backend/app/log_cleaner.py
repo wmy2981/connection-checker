@@ -78,7 +78,17 @@ class LogCleaner:
             await self._upload(files, app_cfg.log_retention_days)
         else:  # delete
             for f in files:
-                f.unlink(missing_ok=True)
+                try:
+                    f.unlink(missing_ok=True)
+                except OSError as e:
+                    # 文件被占用（如导出流仍持有句柄）等删除失败：记录 ERROR 并继续，
+                    # 不因单文件异常中断清理任务
+                    logger.error(
+                        "Failed to delete old log %s: %s; will retry next cycle",
+                        f.name,
+                        e,
+                    )
+                    continue
                 logger.info(
                     "Deleted old log %s (retention %d days)",
                     f.name,

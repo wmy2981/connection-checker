@@ -56,6 +56,7 @@ export interface CheckResult {
 
 export interface ResultFilterParams {
   status?: string
+  check_method?: string
   ip?: string
   target_name?: string
   target_id?: string
@@ -87,6 +88,9 @@ export interface TargetStatus {
   last_latency_ms: number | null
   last_checked_at: string | null
   last_message: string | null
+  uptime_pct: number | null
+  uptime_total: number | null
+  consecutive_fails: number
 }
 
 export interface StatsSummary {
@@ -164,5 +168,7 @@ export interface TrendBucket {
 
 export interface TrendData {
   hours: number
+  target_id: string | null
+  unit: 'hour' | 'day'
   buckets: TrendBucket[]
 }

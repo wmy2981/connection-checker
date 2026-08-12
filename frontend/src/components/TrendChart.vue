@@ -67,13 +67,14 @@ const hoverY = ref(0)
 const tooltipLeft = ref(0)
 const tooltipTop = ref(0)
 
-// 桶形如 "2026-08-08T05:00"，是后端按容器时区聚合的本地小时，直接取分量显示，
-// 避免 new Date() 按浏览器时区二次换算。
+// 桶形如 "2026-08-08T05:00"（小时）或 "2026-08-08"（天），是后端按容器时区
+// 聚合的本地时间，直接取分量显示，避免 new Date() 按浏览器时区二次换算。
 function fmtShort(bucket: string): string {
-  return bucket.slice(11, 16)
+  return bucket.length <= 10 ? bucket.slice(5) : bucket.slice(11, 16)
 }
 
 function fmtTime(bucket: string): string {
+  if (bucket.length <= 10) return bucket
   const m = Number(bucket.slice(5, 7))
   const d = bucket.slice(8, 10)
   const hh = bucket.slice(11, 13)
@@ -108,7 +109,8 @@ const hoverPoint = computed(() => {
 
 const xLabels = computed(() => {
   const n = points.value.length
-  const step = Math.max(1, Math.ceil(n / 6))
+  // 数据点少（如 7 天视图）时全量显示标签，避免间隔跳号
+  const step = n <= 7 ? 1 : Math.max(1, Math.ceil(n / 6))
   const labels: { x: number; text: string }[] = []
   for (let i = 0; i < n; i += step) {
     labels.push({ x: xAt(i), text: fmtShort(props.buckets[i].bucket) })

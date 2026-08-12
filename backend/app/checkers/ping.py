@@ -29,39 +29,53 @@ def _stddev_ms(samples: list[float]) -> float:
 
 
 class PingChecker(BaseChecker):
-    """逐次调用 ping3.ping，统计延迟与丢包率。count 取自 settings。"""
+    """并发调用 ping3.ping（每包一个线程），统计延迟与丢包率。count 取自 settings。
+
+    并发使最坏耗时从 count × timeout 降为单次 timeout（慢网络/丢包下显著提速）。
+    """
 
     def __init__(self, timeout: float, count: int = 4) -> None:
         super().__init__(timeout)
         self.count = count
 
     async def check(self, target: Target) -> CheckOutcome:
-        samples: list[float] = []
-        last_error: str | None = None
-        for _ in range(self.count):
+        async def _once() -> tuple[float | None, str | None]:
+            """单包 ping；返回 (延迟ms, 错误标记)，超时为 (None, None)。"""
             try:
-                rtt = await asyncio.to_thread(ping3.ping, target.ip, timeout=self.timeout, unit="s")
-                if rtt is not None:
-                    samples.append(rtt * 1000.0)
-            except Timeout:
-                pass
-            except HostUnknown:
-                logger.debug("Ping %s: hostname resolution failed", target.ip)
-                return CheckOutcome("fail", "无法解析主机名")
-            except DestinationUnreachable:
-                logger.debug("Ping %s: destination unreachable", target.ip)
-                return CheckOutcome("fail", "目标不可达")
-            except PermissionError:
-                logger.debug("Ping %s: no raw socket permission", target.ip)
-                return CheckOutcome(
-                    "error", "缺少原始套接字权限（容器需 CAP_NET_RAW）"
+                rtt = await asyncio.to_thread(
+                    ping3.ping, target.ip, timeout=self.timeout, unit="s"
                 )
+                if rtt is not None:
+                    return rtt * 1000.0, None
+                return None, None  # 超时
+            except Timeout:
+                return None, None
+            except HostUnknown:
+                return None, "host_unknown"
+            except DestinationUnreachable:
+                return None, "unreachable"
+            except PermissionError:
+                return None, "permission"
             except (PingError, OSError) as e:
-                last_error = str(e)
+                return None, str(e)
 
-        if last_error and not samples:
-            logger.debug("Ping %s: error=%s", target.ip, last_error)
-            return CheckOutcome("error", f"ping 失败: {last_error}")
+        outcomes = await asyncio.gather(*(_once() for _ in range(self.count)))
+        samples = [r for r, _ in outcomes if r is not None]
+        errors = [e for _, e in outcomes if e is not None]
+
+        # 致命错误优先（与串行实现一致：任一包命中即按该错误判定）
+        if "permission" in errors:
+            logger.debug("Ping %s: no raw socket permission", target.ip)
+            return CheckOutcome("error", "缺少原始套接字权限（容器需 CAP_NET_RAW）")
+        if "host_unknown" in errors:
+            logger.debug("Ping %s: hostname resolution failed", target.ip)
+            return CheckOutcome("fail", "无法解析主机名")
+        if "unreachable" in errors:
+            logger.debug("Ping %s: destination unreachable", target.ip)
+            return CheckOutcome("fail", "目标不可达")
+        if errors and not samples:
+            logger.debug("Ping %s: error=%s", target.ip, errors[0])
+            return CheckOutcome("error", f"ping 失败: {errors[0]}")
 
         sent = self.count
         received = len(samples)

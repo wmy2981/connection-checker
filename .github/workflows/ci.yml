@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, claude-code/self-improve]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, claude-code/self-improve]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          cache: 'pip'
 
       - name: Install Python dependencies
         run: pip install -e '.[dev]'
@@ -34,6 +35,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          cache: 'pip'
 
       - name: Install Python dependencies
         run: pip install -e '.[dev]'
@@ -45,6 +47,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-npm-
 
       - name: Build frontend
         working-directory: frontend

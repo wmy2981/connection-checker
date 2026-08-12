@@ -35,7 +35,14 @@ async def get_webhook(request: Request) -> WebhookConfig:
 
 @router.put("/webhook")
 async def update_webhook(request: Request, payload: WebhookConfig) -> WebhookConfig:
-    return await _get_config_store(request).update_webhook_config(payload)
+    saved = await _get_config_store(request).update_webhook_config(payload)
+    logger.info(
+        "Webhook config updated: enabled=%s url_set=%s fail_threshold=%d",
+        saved.enabled,
+        bool(saved.url),
+        saved.fail_threshold,
+    )
+    return saved
 
 
 @router.get("/app")
@@ -72,6 +79,15 @@ async def update_app_settings(request: Request, payload: AppSettings) -> AppSett
     saved = await store.update_app_settings(payload)
     # 结果保留上限立即生效并裁剪超出部分
     request.app.state.result_store.resize(saved.result_max_records)
+    logger.info(
+        "App settings updated: storage_mode=%s log_level=%s cleanup_mode=%s "
+        "result_max_records=%d stats_window=%d",
+        saved.storage_mode,
+        saved.log_level,
+        saved.log_cleanup_mode,
+        saved.result_max_records,
+        saved.stats_window,
+    )
     return saved
 
 
@@ -117,7 +133,10 @@ async def update_s3_settings(
 ) -> S3ConfigResponse:
     store = _get_config_store(request)
     secrets: SecretsStore = request.app.state.secrets_store
-    cfg = S3Config.model_validate(payload.model_dump(exclude={"access_id", "access_key"}))
+    # 未提供的字段（exclude_unset）保留已保存配置：部分负载只改携带的字段
+    saved = await store.get_s3_config()
+    updates = payload.model_dump(exclude_unset=True, exclude={"access_id", "access_key"})
+    cfg = S3Config.model_validate({**saved.model_dump(), **updates})
     if cfg.enabled and not (cfg.endpoint and cfg.bucket and cfg.datapath):
         raise HTTPException(status_code=422, detail="启用 S3 时 endpoint、bucket、数据路径必填")
     await store.update_s3_config(cfg)
@@ -127,9 +146,9 @@ async def update_s3_settings(
 
 @router.get("/api-token")
 async def get_api_token(request: Request) -> dict:
-    """返回当前 API Token 明文（供配置页展示复制）；未设置返回 null。"""
+    """返回 API 令牌是否已设置（不回读明文：密钥类数据接口不回读，防 XSS 窃取）。"""
     secrets_store: SecretsStore = request.app.state.secrets_store
-    return {"token": secrets_store.api_token or None}
+    return {"has_token": bool(secrets_store.api_token)}
 
 
 @router.post("/api-token/generate")

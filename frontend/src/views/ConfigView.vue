@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -29,7 +29,8 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { copyText } from '@/composables/useClipboard'
-import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, WebhookConfig } from '@/types'
+import { formatDateTime } from '@/composables/useAppTime'
+import type { AppSettings, CheckResult, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -38,6 +39,8 @@ const targets = ref<Target[]>([])
 const loading = ref(false)
 const modalShow = ref(false)
 const editing = ref<Target | null>(null)
+// 每个目标的最新检查状态（来自 /stats/summary），供「最近状态」列展示
+const targetStatus = ref<Record<string, TargetStatus>>({})
 
 const webhook = ref<WebhookConfig>({ enabled: true, url: null, fail_threshold: 3 })
 const webhookUrl = ref('')
@@ -95,6 +98,37 @@ const apiToken = ref<string | null>(null)
 
 const brandIconInput = ref('')
 const brandSaving = ref(false)
+const iconFileInput = ref<HTMLInputElement | null>(null)
+// 预览加载失败（非法 URL）时回退默认图标
+const previewBroken = ref(false)
+watch(brandIconInput, () => {
+  previewBroken.value = false
+})
+
+// 本地上传图标：转 base64 data URI 填入输入框（预览后保存）；限 1MB（后端字段上限 2M）
+const ICON_FILE_MAX = 1 * 1024 * 1024
+
+function pickIconFile() {
+  iconFileInput.value?.click()
+}
+
+function onIconFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (file.size > ICON_FILE_MAX) {
+    message.warning('图片超过 1MB，请压缩后重试')
+    input.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    brandIconInput.value = String(reader.result ?? '')
+    message.info('已载入图片，保存后生效')
+  }
+  reader.readAsDataURL(file)
+  input.value = '' // 允许重复选择同一文件
+}
 
 const logLevelOptions = [
   { label: 'DEBUG', value: 'DEBUG' },
@@ -125,8 +159,23 @@ const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pag
 // 表格高度（减去筛选区/分页区等固定部分）。modal 高度 auto（内容驱动）时不联动，
 // 否则表格高度反作用于内容形成正反馈循环。
 let logResizeObserver: ResizeObserver | null = null
+let logPollTimer: number | null = null
+const LOG_POLL_INTERVAL = 15_000
 watch(showLogs, async (v) => {
-  if (!v) return
+  if (!v) {
+    // 关闭时停止自动刷新
+    if (logPollTimer != null) {
+      window.clearInterval(logPollTimer)
+      logPollTimer = null
+    }
+    return
+  }
+  // 弹窗打开期间每 15s 静默刷新，持续追踪最新日志（保持当前筛选与页码）
+  if (logPollTimer == null) {
+    logPollTimer = window.setInterval(() => {
+      if (showLogs.value) void fetchLogs(true)
+    }, LOG_POLL_INTERVAL)
+  }
   await nextTick()
   logResizeObserver?.disconnect()
   const modal = document.querySelector<HTMLElement>('.n-modal')
@@ -203,8 +252,9 @@ async function loadLogSources() {
   }
 }
 
-async function fetchLogs() {
-  logLoading.value = true
+async function fetchLogs(silent = false) {
+  // 后台轮询（silent）不触发 loading，避免表格每 15s 闪烁
+  if (!silent) logLoading.value = true
   try {
     logData.value = await api.queryLogs({
       level: multi(logLevel.value),
@@ -217,7 +267,7 @@ async function fetchLogs() {
   } catch (e) {
     message.error(errText(e))
   } finally {
-    logLoading.value = false
+    if (!silent) logLoading.value = false
   }
 }
 
@@ -257,6 +307,17 @@ async function load() {
   }
 }
 
+async function loadStats() {
+  try {
+    const s = await api.stats()
+    const map: Record<string, TargetStatus> = {}
+    for (const t of s.target_status) map[t.target_id] = t
+    targetStatus.value = map
+  } catch {
+    /* 401 由 client 处理 */
+  }
+}
+
 async function loadAppSettings() {
   try {
     appSettings.value = await api.getAppSettings()
@@ -275,6 +336,7 @@ async function saveBrandIcon() {
   brandSaving.value = true
   try {
     appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    window.dispatchEvent(new Event('cc-brand-icon-changed'))
     message.success('品牌图标已保存')
   } catch (e) {
     message.error(errText(e))
@@ -288,6 +350,7 @@ async function clearBrandIcon() {
   try {
     appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: null })
     brandIconInput.value = ''
+    window.dispatchEvent(new Event('cc-brand-icon-changed'))
     message.success('已恢复默认图标')
   } catch (e) {
     message.error(errText(e))
@@ -328,6 +391,10 @@ async function loadWebhook() {
 
 async function testWebhook() {
   const url = webhookUrl.value.trim()
+  if (!url) {
+    message.warning('请先填写 Webhook 地址')
+    return
+  }
   webhookTesting.value = true
   try {
     const r = await api.testWebhook(url)
@@ -364,9 +431,12 @@ async function loadS3() {
   }
 }
 
+// 令牌是否已设置（后端不回读明文；明文只在生成后临时展示）
+const apiTokenSet = ref(false)
+
 async function loadApiToken() {
   try {
-    apiToken.value = (await api.getApiToken()).token
+    apiTokenSet.value = (await api.getApiToken()).has_token
   } catch {
     /* 401 由 client 处理 */
   }
@@ -375,6 +445,7 @@ async function loadApiToken() {
 async function regenerateToken() {
   try {
     apiToken.value = (await api.generateApiToken()).token
+    apiTokenSet.value = true
     message.success('已生成新令牌，旧令牌立即失效')
   } catch (e) {
     message.error(errText(e))
@@ -385,6 +456,7 @@ async function removeToken() {
   try {
     await api.deleteApiToken()
     apiToken.value = null
+    apiTokenSet.value = false
     message.success('已删除 API 令牌')
   } catch (e) {
     message.error(errText(e))
@@ -423,6 +495,18 @@ async function saveS3() {
   }
 }
 
+async function clearS3Credentials() {
+  try {
+    // 传空字符串显式清除已保存凭据（null 语义是不修改）
+    const payload = await s3Payload()
+    s3.value = await api.updateS3Config({ ...payload, access_id: '', access_key: '' })
+    s3Credentials.value = { access_id: '', access_key: '' }
+    message.success('S3 凭据已清除，S3 功能停用')
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
 async function testS3() {
   s3Testing.value = true
   try {
@@ -435,12 +519,51 @@ async function testS3() {
   }
 }
 
+// --- SSE 实时状态：检查结果到达时局部更新「最近状态」列，节流兜底全量刷新 ---
+let es: EventSource | null = null
+let lastStatsRefresh = 0
+const STATS_REFRESH_THROTTLE = 10_000
+
+function onSseResult(ev: Event) {
+  try {
+    const r = JSON.parse((ev as MessageEvent).data) as CheckResult
+    const cur = targetStatus.value[r.target_id]
+    if (cur) {
+      cur.last_status = r.status
+      cur.last_latency_ms = r.latency_ms
+      cur.last_checked_at = r.checked_at
+      cur.last_message = r.message
+    }
+  } catch {
+    /* 解析失败仅跳过局部更新 */
+  }
+  const now = Date.now()
+  if (now - lastStatsRefresh >= STATS_REFRESH_THROTTLE) {
+    lastStatsRefresh = now
+    void loadStats()
+  }
+}
+
+function connectSse() {
+  es = new EventSource('/api/v1/stream')
+  es.addEventListener('result', onSseResult)
+  es.onerror = () => {
+    /* EventSource 自动重连 */
+  }
+}
+
 onMounted(() => {
   load()
+  loadStats()
   loadAppSettings()
   loadWebhook()
   loadS3()
   loadApiToken()
+  connectSse()
+})
+
+onUnmounted(() => {
+  es?.close()
 })
 
 function openCreate() {
@@ -453,7 +576,25 @@ function openEdit(t: Target) {
   modalShow.value = true
 }
 
+// 复制目标：同一份参数创建新目标（名称加「副本」后缀，新 id 由后端生成）
+async function duplicate(t: Target) {
+  const { id: _id, created_at: _created, updated_at: _updated, ...rest } = t
+  try {
+    await api.createTarget({
+      ...rest,
+      name: t.name ? `${t.name}（副本）` : null,
+    })
+    message.success('已复制为新目标')
+    await load()
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
+const modalSaving = ref(false)
+
 async function save(payload: TargetInput) {
+  modalSaving.value = true
   try {
     if (editing.value) {
       await api.updateTarget(editing.value.id, payload)
@@ -466,6 +607,8 @@ async function save(payload: TargetInput) {
     await load()
   } catch (e) {
     message.error(errText(e))
+  } finally {
+    modalSaving.value = false
   }
 }
 
@@ -491,7 +634,19 @@ async function toggleEnabled(t: Target, value: boolean) {
 
 const statusLabels: Record<string, string> = { success: '成功', fail: '失败', timeout: '超时', error: '错误' }
 
+const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'default'; label: string }> = {
+  success: { type: 'success', label: '成功' },
+  fail: { type: 'error', label: '失败' },
+  timeout: { type: 'warning', label: '超时' },
+  error: { type: 'default', label: '错误' },
+}
+
+// 正在手动检查的目标集合，防止重复点击触发多次检查
+const runningIds = ref<Set<string>>(new Set())
+
 async function runOne(t: Target) {
+  if (runningIds.value.has(t.id)) return
+  runningIds.value.add(t.id)
   try {
     const r = await api.runChecks(t.id)
     const status = r[0]?.status
@@ -499,8 +654,11 @@ async function runOne(t: Target) {
     if (status === 'fail' || status === 'error') message.error(text)
     else if (status === 'timeout') message.warning(text)
     else message.success(text)
+    await loadStats()
   } catch (e) {
     message.error(errText(e))
+  } finally {
+    runningIds.value.delete(t.id)
   }
 }
 
@@ -516,6 +674,42 @@ const columns: DataTableColumns<Target> = [
   { title: 'IP / 主机名', key: 'ip', minWidth: 140 },
   { title: '方式', key: 'check_method', render: (t) => methodText(t) },
   {
+    title: '最近状态',
+    key: 'last_status',
+    width: 150,
+    render: (t) => {
+      const s = targetStatus.value[t.id]
+      const status = s?.last_status
+      if (!status) return h('span', { class: 'dim' }, '—')
+      return h(NSpace, { size: 4, align: 'center' }, () => [
+        h(
+          NTag,
+          {
+            size: 'small',
+            bordered: false,
+            type: statusTag[status].type,
+            title: s.last_checked_at ? `最近检查：${formatDateTime(s.last_checked_at)}` : undefined,
+          },
+          { default: () => statusTag[status].label },
+        ),
+        s.last_latency_ms != null
+          ? h(
+              'span',
+              {
+                class:
+                  s.last_latency_ms >= 1000
+                    ? 'lat-bad'
+                    : s.last_latency_ms >= 500
+                      ? 'lat-warn'
+                      : 'dim',
+              },
+              `${s.last_latency_ms}ms`,
+            )
+          : null,
+      ])
+    },
+  },
+  {
     title: '间隔',
     key: 'check_interval',
     width: 80,
@@ -525,7 +719,10 @@ const columns: DataTableColumns<Target> = [
     title: '时间窗口',
     key: 'time_ranges',
     minWidth: 150,
-    render: (t) => t.time_ranges.map((r) => `${r.start}–${r.end}`).join(', '),
+    render: (t) =>
+      t.time_ranges.length
+        ? t.time_ranges.map((r) => `${r.start}–${r.end}`).join(', ')
+        : '全天',
   },
   {
     title: '启用',
@@ -536,13 +733,19 @@ const columns: DataTableColumns<Target> = [
   {
     title: '操作',
     key: 'action',
-    width: 220,
+    width: 280,
     render: (t) =>
       h(NSpace, { size: 4 }, () => [
         t.enabled
           ? h(
               NButton,
-              { size: 'tiny', secondary: true, type: 'primary', onClick: () => runOne(t) },
+              {
+                size: 'tiny',
+                secondary: true,
+                type: 'primary',
+                loading: runningIds.value.has(t.id),
+                onClick: () => runOne(t),
+              },
               { default: () => '检查' },
             )
           : null,
@@ -550,6 +753,11 @@ const columns: DataTableColumns<Target> = [
           NButton,
           { size: 'tiny', secondary: true, onClick: () => openEdit(t) },
           { default: () => '编辑' },
+        ),
+        h(
+          NButton,
+          { size: 'tiny', secondary: true, onClick: () => duplicate(t) },
+          { default: () => '复制' },
         ),
         h(
           NPopconfirm,
@@ -695,7 +903,12 @@ const columns: DataTableColumns<Target> = [
             </n-space>
             <n-space vertical :size="8">
               <span class="label">Webhook 地址（兼容 Gotify / 企业微信 / 自建服务，POST JSON）</span>
-              <n-input v-model:value="webhookUrl" placeholder="https://gotify.example.com/message?token=..." clearable />
+              <n-input
+                v-model:value="webhookUrl"
+                placeholder="https://gotify.example.com/message?token=..."
+                :maxlength="500"
+                clearable
+              />
             </n-space>
             <n-space align="center" :size="12">
               <span>连续失败阈值</span>
@@ -718,11 +931,23 @@ const columns: DataTableColumns<Target> = [
             </n-space>
             <n-space align="center" :size="12" wrap>
               <span class="label">Endpoint</span>
-              <n-input v-model:value="s3.endpoint" placeholder="https://s3.example.com" clearable style="width: 300px" />
+              <n-input
+                v-model:value="s3.endpoint"
+                placeholder="https://s3.example.com"
+                :maxlength="500"
+                clearable
+                style="width: 300px"
+              />
             </n-space>
             <n-space align="center" :size="12" wrap>
               <span class="label">Bucket</span>
-              <n-input v-model:value="s3.bucket" placeholder="存储桶名称" clearable style="width: 200px" />
+              <n-input
+                v-model:value="s3.bucket"
+                placeholder="存储桶名称"
+                :maxlength="255"
+                clearable
+                style="width: 200px"
+              />
               <span class="label">Region（可选）</span>
               <n-input v-model:value="s3.region" placeholder="部分服务要求" clearable style="width: 150px" />
             </n-space>
@@ -731,6 +956,7 @@ const columns: DataTableColumns<Target> = [
               <n-input
                 v-model:value="s3.datapath"
                 placeholder="如 connection-checker/，数据在 bucket 中的路径前缀"
+                :maxlength="500"
                 clearable
                 style="width: 300px"
               />
@@ -754,6 +980,16 @@ const columns: DataTableColumns<Target> = [
               <span v-if="s3.enabled && !s3.has_credentials" class="hint">尚未配置凭据，S3 功能不可用</span>
               <n-button :loading="s3Testing" @click="testS3">测试连接</n-button>
               <n-button type="primary" :loading="s3Saving" @click="saveS3">保存 S3 配置</n-button>
+              <n-popconfirm
+                v-if="s3.has_credentials"
+                :positive-button-props="{ type: 'error' }"
+                @positive-click="clearS3Credentials"
+              >
+                <template #trigger>
+                  <n-button type="error" secondary>清除凭据</n-button>
+                </template>
+                确认清除已保存的 S3 凭据？S3 功能将立即停用
+              </n-popconfirm>
             </n-space>
           </n-space>
           </n-card>
@@ -763,9 +999,10 @@ const columns: DataTableColumns<Target> = [
             <n-space align="center" :size="12" wrap>
               <span class="label">令牌</span>
               <n-input v-if="apiToken" :value="apiToken" readonly style="width: 340px" />
+              <span v-else-if="apiTokenSet" class="hint">令牌已设置（出于安全不再明文显示；需复制请重新生成）</span>
               <span v-else class="hint">未设置 API 令牌，外部 API 调用将被拒绝</span>
               <n-button v-if="apiToken" size="small" @click="copyToken">复制</n-button>
-              <n-popconfirm v-if="apiToken" :positive-button-props="{ type: 'error' }" @positive-click="removeToken">
+              <n-popconfirm v-if="apiTokenSet" :positive-button-props="{ type: 'error' }" @positive-click="removeToken">
                 <template #trigger>
                   <n-button size="small" type="error" secondary>删除</n-button>
                 </template>
@@ -787,7 +1024,12 @@ const columns: DataTableColumns<Target> = [
           <n-card title="品牌图标" size="small">
           <n-space vertical size="large">
             <n-space align="center" :size="12" wrap>
-              <img :src="brandIconInput || '/favicon.svg'" alt="图标预览" class="brand-preview" />
+              <img
+                :src="previewBroken ? '/favicon.svg' : brandIconInput || '/favicon.svg'"
+                alt="图标预览"
+                class="brand-preview"
+                @error="previewBroken = true"
+              />
               <span class="hint">预览；必须是正方形（PNG/JPEG/GIF/WebP/SVG），不符合将被拒绝保存</span>
             </n-space>
             <n-space align="center" :size="12" wrap>
@@ -795,8 +1037,17 @@ const columns: DataTableColumns<Target> = [
               <n-input
                 v-model:value="brandIconInput"
                 placeholder="图片 URL 或 base64 data URI（data:image/png;base64,...）"
+                :maxlength="2000000"
                 clearable
                 style="width: 420px"
+              />
+              <n-button size="small" secondary @click="pickIconFile">上传图片</n-button>
+              <input
+                ref="iconFileInput"
+                type="file"
+                accept="image/*"
+                class="hidden-file"
+                @change="onIconFile"
               />
             </n-space>
             <n-space align="end">
@@ -815,6 +1066,7 @@ const columns: DataTableColumns<Target> = [
   <TargetFormModal
     v-model:show="modalShow"
     :target="editing"
+    :saving="modalSaving"
     @save="save"
   />
 
@@ -847,7 +1099,7 @@ const columns: DataTableColumns<Target> = [
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
-        <n-button size="small" type="primary" :loading="logLoading" @click="fetchLogs">查询</n-button>
+        <n-button size="small" type="primary" :loading="logLoading" @click="() => fetchLogs()">查询</n-button>
         <n-button size="small" quaternary @click="resetLogFilters">重置</n-button>
         <n-button size="small" :loading="logExporting" @click="exportLogs">导出</n-button>
       </n-space>
@@ -859,12 +1111,12 @@ const columns: DataTableColumns<Target> = [
         size="small"
       />
       <n-space align="center" justify="space-between" :size="12">
-        <span class="hint">共 {{ logData.total }} 条；时间为服务器本地时区</span>
+        <span class="hint">共 {{ logData.total.toLocaleString() }} 条；时间为服务器本地时区</span>
         <n-pagination
           v-model:page="logPage"
           :page-count="logData.pages || 1"
           :page-size="logData.page_size"
-          @update:page="fetchLogs"
+          @update:page="() => fetchLogs()"
         />
       </n-space>
     </n-space>
@@ -918,6 +1170,24 @@ const columns: DataTableColumns<Target> = [
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
+}
+.dim {
+  color: var(--cc-text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.hidden-file {
+  display: none;
+}
+.lat-warn {
+  color: #fab219;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.lat-bad {
+  color: #d03b3b;
+  font-size: 12px;
+  white-space: nowrap;
 }
 @media (max-width: 640px) {
   .header-inner {

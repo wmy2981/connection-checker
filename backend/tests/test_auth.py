@@ -1,5 +1,8 @@
+from fastapi.testclient import TestClient
+
 from app.auth import Security
 from app.config import Settings
+from app.main import create_app
 from app.storage import SecretsStore
 
 
@@ -11,6 +14,29 @@ def _security(tmp_path, access_code: str = "", jwt_secret: str = "") -> Security
         jwt_secret=jwt_secret,
     )
     return Security(SecretsStore(s.data_dir), s)
+
+
+def test_login_logout_logged(tmp_path):
+    """登录成功/失败与登出记录 4 级日志（INFO/WARN 安全事件，从日志文件断言）。"""
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        access_code="secret-code",
+        jwt_secret="x" * 40,
+    )
+    with TestClient(create_app(settings)) as c:
+        assert c.post("/api/v1/auth/login", json={"access_code": "wrong"}).status_code == 401
+        assert (
+            c.post("/api/v1/auth/login", json={"access_code": "secret-code"}).status_code
+            == 200
+        )
+        c.post("/api/v1/auth/logout", headers={"content-type": "application/json"})
+
+    log_file = next((tmp_path / "data" / "logs").glob("app-*.log"))
+    text = log_file.read_text(encoding="utf-8")
+    assert "Login failed" in text
+    assert "Login success" in text
+    assert "Logout" in text
 
 
 def test_env_access_code_hashed(tmp_path):

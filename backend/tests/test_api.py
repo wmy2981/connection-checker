@@ -15,6 +15,26 @@ def _payload(name: str = "测试", method: str = "ping", ip: str = "8.8.8.8") ->
     return {"name": name, "ip": ip, "check_method": method, "check_interval": 60}
 
 
+async def test_s3_mode_without_credentials_warns(tmp_path):
+    """storage_mode=s3 但 S3 未启用/无凭据：启动 WARNING 提示静默降级本地，不静默运行。"""
+    from app.storage import ConfigStore
+
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        access_code="",
+        jwt_secret="x" * 40,
+    )
+    store = ConfigStore(settings.data_dir)
+    await store.update_app_settings(AppSettings(storage_mode="s3"))
+    app = create_app(settings)
+    with TestClient(app) as c:
+        assert c.get("/api/v1/auth/me").status_code == 200
+    log_file = next((tmp_path / "data" / "logs").glob("app-*.log"))
+    text = log_file.read_text(encoding="utf-8")
+    assert "will stay local only" in text
+
+
 def test_no_access_code_disables_auth(tmp_path):
     """未设置访问码 = 免认证模式：直接访问面板，登录接口随意通过。"""
     settings = Settings(
@@ -96,12 +116,76 @@ def test_create_target_validation(logged_client: TestClient):
     assert resp.status_code == 422
 
 
+def test_target_crud_and_settings_logged(logged_client, no_scheduler, caplog):
+    """目标 CRUD 与全局设置更新记录 INFO 日志（4 级日志机制回归）。"""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        created = logged_client.post("/api/v1/targets", json=_payload())
+        assert created.status_code == 201
+        tid = created.json()["id"]
+        assert (
+            logged_client.put(
+                f"/api/v1/targets/{tid}", json={"check_interval": 120}
+            ).status_code
+            == 200
+        )
+        assert logged_client.delete(f"/api/v1/targets/{tid}").status_code == 204
+
+        cfg = logged_client.get("/api/v1/settings/webhook").json()
+        cfg["fail_threshold"] = 5
+        assert logged_client.put("/api/v1/settings/webhook", json=cfg).status_code == 200
+
+    msgs = [r.message for r in caplog.records]
+    assert any(m.startswith("Target created") for m in msgs)
+    assert any(m.startswith("Target updated") for m in msgs)
+    assert any(m.startswith("Target deleted") for m in msgs)
+    assert any(m.startswith("Webhook config updated") for m in msgs)
+
+
+def test_http_success_codes_range_validation(logged_client: TestClient):
+    """期望状态码必须落在 100-599：创建与更新均被 422 拒绝。"""
+    bad = {"ip": "1.1.1.1", "check_method": "http", "http_success_codes": [200, 999]}
+    assert logged_client.post("/api/v1/targets", json=bad).status_code == 422
+
+    ok = logged_client.post(
+        "/api/v1/targets", json={"ip": "1.1.1.1", "check_method": "http"}
+    )
+    assert ok.status_code == 201
+    tid = ok.json()["id"]
+    assert (
+        logged_client.put(
+            f"/api/v1/targets/{tid}", json={"http_success_codes": [99]}
+        ).status_code
+        == 422
+    )
+
+
 def test_csrf_content_type_check(logged_client: TestClient):
     body = '{"ip":"1.1.1.1","check_method":"ping"}'
     resp = logged_client.post(
         "/api/v1/targets", content=body, headers={"content-type": "text/plain"}
     )
     assert resp.status_code == 415
+
+
+def test_manual_run_crash_returns_error_result(
+    logged_client: TestClient, no_scheduler, monkeypatch
+):
+    """检查器崩溃：run 接口返回 error 结果，而非静默少一条（前端误报全部正常）。"""
+
+    class BoomChecker:
+        async def check(self, target):  # noqa: ANN001
+            raise RuntimeError("checker exploded")
+
+    monkeypatch.setattr("app.scheduler.build_checker", lambda *a, **k: BoomChecker())
+    logged_client.post("/api/v1/targets", json=_payload())
+    resp = logged_client.post("/api/v1/checks/run", json={})
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["status"] == "error"
+    assert "checker exploded" in results[0]["message"]
 
 
 def test_manual_run_and_results(logged_client: TestClient, fake_checker, no_scheduler):
@@ -157,6 +241,19 @@ def test_results_export_json(logged_client: TestClient, fake_checker, no_schedul
     assert isinstance(data, list) and len(data) == 1
     assert data[0]["status"] == "success"
     assert data[0]["latency_ms"] == 12.3
+
+
+def test_manual_run_concurrent_targets(logged_client: TestClient, fake_checker, no_scheduler):
+    """多个目标手动全部检查：并发执行且全部返回（回归：串行会逐个等待超时）。"""
+    fake_checker(status="success", message="ok", latency_ms=1.0)
+    for i in range(5):
+        logged_client.post("/api/v1/targets", json=_payload(name=f"c-{i}", ip=f"10.0.0.{i}"))
+    resp = logged_client.post("/api/v1/checks/run", json={})
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 5
+    assert all(r["status"] == "success" for r in results)
+    assert logged_client.get("/api/v1/results").json()["total"] == 5
 
 
 def test_manual_run_unknown_target(logged_client: TestClient):
@@ -381,6 +478,40 @@ def test_stats_trend(logged_client: TestClient, fake_checker, no_scheduler):
     assert trend["buckets"][-1]["success"] == 1
 
 
+def test_stats_trend_filter_by_target(logged_client: TestClient, fake_checker, no_scheduler):
+    """trend 按 target_id 过滤：单目标趋势与全量分离，未知目标返回空桶。"""
+    fake_checker(status="success", message="ok")
+    r1 = logged_client.post("/api/v1/targets", json=_payload(name="a", ip="8.8.8.1"))
+    logged_client.post("/api/v1/targets", json=_payload(name="b", ip="8.8.8.2"))
+    logged_client.post("/api/v1/checks/run", json={})
+    t1 = r1.json()["id"]
+
+    all_trend = logged_client.get("/api/v1/stats/trend", params={"hours": 24}).json()
+    assert all_trend["target_id"] is None
+    assert all_trend["buckets"][-1]["total"] == 2
+
+    one = logged_client.get(
+        "/api/v1/stats/trend", params={"hours": 24, "target_id": t1}
+    ).json()
+    assert one["target_id"] == t1
+    assert one["buckets"][-1]["total"] == 1
+
+    none = logged_client.get(
+        "/api/v1/stats/trend", params={"hours": 24, "target_id": "ghost"}
+    ).json()
+    assert none["buckets"][-1]["total"] == 0
+
+    # 天级聚合：unit=day 返回 1 个当日桶，非法 unit 被 422 拒绝
+    day = logged_client.get(
+        "/api/v1/stats/trend", params={"hours": 24, "unit": "day"}
+    ).json()
+    assert day["unit"] == "day"
+    assert len(day["buckets"]) == 1
+    assert day["buckets"][-1]["total"] == 2
+    bad = logged_client.get("/api/v1/stats/trend", params={"unit": "minute"})
+    assert bad.status_code == 422
+
+
 def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     fake_checker(status="fail", message="超时了")
     logged_client.post("/api/v1/targets", json=_payload())
@@ -391,7 +522,37 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     assert stats["enabled_targets"] == 1
     assert stats["last_total_checks"] == 1
     assert stats["last_fail"] == 1
-    assert stats["target_status"][0]["last_status"] == "fail"
+    ts = stats["target_status"][0]
+    assert ts["last_status"] == "fail"
+    # 近 24h 可用率字段（全部失败 → 0%）
+    assert ts["uptime_pct"] == 0.0
+    assert ts["uptime_total"] == 1
+    # 连续失败计数由告警模块跟踪
+    assert ts["consecutive_fails"] == 1
+
+
+def test_results_filter_by_check_method(logged_client, fake_checker, no_scheduler):
+    """check_method 筛选：单值与逗号分隔多值均生效（含导出接口）。"""
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload(name="p1", ip="8.8.8.1", method="ping"))
+    logged_client.post("/api/v1/targets", json=_payload(name="h1", ip="8.8.8.2", method="http"))
+    logged_client.post("/api/v1/checks/run", json={})
+
+    only_http = logged_client.get(
+        "/api/v1/results", params={"check_method": "http"}
+    ).json()
+    assert only_http["total"] == 1
+    assert only_http["results"][0]["check_method"] == "http"
+
+    multi = logged_client.get(
+        "/api/v1/results", params={"check_method": "ping,http"}
+    ).json()
+    assert multi["total"] == 2
+
+    export = logged_client.get(
+        "/api/v1/results/export.json", params={"check_method": "dns"}
+    ).json()
+    assert export == []
 
 
 def test_results_multi_value_filters(logged_client, fake_checker, no_scheduler):
@@ -474,6 +635,10 @@ def test_s3_settings_crud(logged_client: TestClient):
     assert data["has_credentials"] is False
     assert "access_id" not in data and "access_key" not in data  # 密钥明文永不回读
 
+    # 启用 S3 但缺必填字段 → 422（默认配置下 endpoint 为空）
+    resp = logged_client.put("/api/v1/settings/s3", json={"enabled": True, "bucket": "x"})
+    assert resp.status_code == 422
+
     payload = {
         "enabled": True,
         "endpoint": "https://s3.example.com",
@@ -514,9 +679,18 @@ def test_s3_settings_crud(logged_client: TestClient):
     secrets_raw = json.loads((data_dir / "secrets.json").read_text(encoding="utf-8"))
     assert secrets_raw["s3_access_key"] == "minioadmin123"
 
-    # 启用 S3 但缺必填字段 → 422
-    resp = logged_client.put("/api/v1/settings/s3", json={"enabled": True, "bucket": "x"})
-    assert resp.status_code == 422
+    # 只携带凭据的部分负载：其余字段保持已保存值，不重置为默认
+    resp = logged_client.put(
+        "/api/v1/settings/s3", json={"access_id": "new-id", "access_key": "new-key"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True  # 未传字段保留
+    assert data["endpoint"] == "https://s3.example.com"
+    assert data["datapath"] == "cc/"
+    assert data["has_credentials"] is True
+    secrets_raw = json.loads((data_dir / "secrets.json").read_text(encoding="utf-8"))
+    assert secrets_raw["s3_access_id"] == "new-id"
 
     # 可以清除凭据（显式传空字符串）
     resp = logged_client.put(
@@ -594,17 +768,28 @@ def _generate_token(logged_client: TestClient) -> str:
     return resp.json()["token"]
 
 
-def test_api_token_flow(logged_client: TestClient):
-    """API Token：生成后 Bearer 可用，重新生成旧 token 失效，删除后禁用。"""
-    assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
+def _bare_client(settings):
+    """无登录 cookie 的独立客户端（同一 data_dir，读取最新 secrets.json 的 token）。"""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    return TestClient(create_app(settings))
+
+
+def test_api_token_flow(logged_client: TestClient, settings):
+    """API Token：生成后 Bearer 可用，重新生成旧 token 失效，删除后禁用。
+
+    Bearer 失效语义用无 cookie 的独立客户端验证（带 cookie 的会话由 cookie 认证）。
+    """
+    assert logged_client.get("/api/v1/settings/api-token").json()["has_token"] is False
 
     token = _generate_token(logged_client)
     assert token
 
-    assert logged_client.get("/api/v1/targets", headers=_bearer(token)).status_code == 200
-    assert (
-        logged_client.get("/api/v1/targets", headers=_bearer("wrong")).status_code == 401
-    )
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(token)).status_code == 200
+        assert bare.get("/api/v1/targets", headers=_bearer("wrong")).status_code == 401
     assert logged_client.get("/api/v1/targets").status_code == 200  # cookie 仍可用
 
     secrets_raw = json.loads(
@@ -614,12 +799,27 @@ def test_api_token_flow(logged_client: TestClient):
 
     new_token = _generate_token(logged_client)
     assert new_token != token
-    assert logged_client.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
-    assert logged_client.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 200
+    # 无 cookie 调用方：旧 token 立即失效，新 token 可用
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
+        assert bare.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 200
 
     assert logged_client.delete("/api/v1/settings/api-token").status_code == 200
-    assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
-    assert logged_client.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 401
+    assert logged_client.get("/api/v1/settings/api-token").json()["has_token"] is False
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 401
+
+
+def test_valid_cookie_wins_over_stale_bearer(logged_client: TestClient, settings):
+    """有效 Cookie 会话优先于残留/失效的 Bearer 头：token 轮换后浏览器不被 401 踢出。"""
+    token = _generate_token(logged_client)
+    _generate_token(logged_client)  # 轮换：旧 token 立即失效
+    # 无 cookie 客户端：失效 token 仍被拒绝
+    with _bare_client(settings) as bare:
+        assert bare.get("/api/v1/targets", headers=_bearer(token)).status_code == 401
+    # 浏览器同时携带有效 cookie 与失效 Bearer（如脚本残留头）：cookie 会话仍放行
+    resp = logged_client.get("/api/v1/targets", headers=_bearer(token))
+    assert resp.status_code == 200
 
 
 def test_api_token_requires_json_content_type(logged_client: TestClient):
