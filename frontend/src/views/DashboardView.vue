@@ -627,7 +627,11 @@ const columns: DataTableColumns<CheckResult> = [
                 </n-button>
               </div>
             </div>
-            <n-empty v-else description="还没有检查目标，去「配置管理」添加" />
+            <n-empty v-else description="还没有检查目标，去「配置管理」添加">
+              <template #extra>
+                <n-button size="small" type="primary" @click="router.push('/config')">去添加</n-button>
+              </template>
+            </n-empty>
           </n-card>
 
           <n-card :title="trendUnit === 'day' ? '成功率趋势（近 7 天）' : '成功率趋势（近 24 小时）'" size="small">
