@@ -12,6 +12,9 @@ from app.models import Target
 
 logger = logging.getLogger(__name__)
 
+# 响应体读取上限（字节）：状态码检查不需要完整 body，避免大文件拖慢检查与占内存
+BODY_READ_LIMIT = 1_000_000
+
 
 def _default_port(scheme: str) -> int:
     return 443 if scheme == "https" else 80
@@ -75,10 +78,14 @@ class HttpChecker(BaseChecker):
                 req = client.build_request("GET", url)
                 resp = await client.send(req, stream=True)
                 t_headers = time.monotonic()
-                body = await resp.aread()
+                body = bytearray()
+                async for chunk in resp.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) >= BODY_READ_LIMIT:
+                        break
                 t_body = time.monotonic()
                 await resp.aclose()
-                return resp, body, t_headers, t_body
+                return resp, bytes(body), t_headers, t_body
 
         try:
             # httpx 的 float timeout 是分阶段空闲超时（connect/read 各自计时），
