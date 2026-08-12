@@ -133,6 +133,13 @@ function focusTrend(targetId: string) {
   if (trendUnit.value === 'hour') trendUnit.value = 'day'
 }
 
+// 延迟着色：≥1s 红、≥500ms 橙，其余默认色
+function latencyClass(ms: number): string {
+  if (ms >= 1000) return 'lat-bad'
+  if (ms >= 500) return 'lat-warn'
+  return ''
+}
+
 const detail = ref<CheckResult | null>(null)
 const showDetail = ref(false)
 
@@ -491,7 +498,10 @@ const columns: DataTableColumns<CheckResult> = [
     title: '延迟',
     key: 'latency_ms',
     width: 90,
-    render: (r) => (r.latency_ms != null ? `${r.latency_ms}ms` : '-'),
+    render: (r) =>
+      r.latency_ms != null
+        ? h('span', { class: latencyClass(r.latency_ms) }, `${r.latency_ms}ms`)
+        : '-',
   },
   {
     title: '详情',
@@ -889,6 +899,12 @@ const columns: DataTableColumns<CheckResult> = [
   color: #fab219;
 }
 .up-bad {
+  color: #d03b3b;
+}
+.lat-warn {
+  color: #fab219;
+}
+.lat-bad {
   color: #d03b3b;
 }
 .sse-status {
