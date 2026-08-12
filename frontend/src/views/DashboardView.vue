@@ -127,10 +127,10 @@ function uptimeClass(pct: number): string {
   return 'up-bad'
 }
 
-// 点击目标卡可用率：趋势图切换到该目标并放大到 7 天视图
+// 点击目标卡可用率：趋势图切换到该目标并对应 24h 视图（可用率本身是 24h 指标）
 function focusTrend(targetId: string) {
   trendTargetId.value = targetId
-  if (trendUnit.value === 'hour') trendUnit.value = 'day'
+  if (trendUnit.value === 'day') trendUnit.value = 'hour'
 }
 
 // 延迟着色：≥1s 红、≥500ms 橙，其余默认色
@@ -497,7 +497,6 @@ const columns: DataTableColumns<CheckResult> = [
     title: '时间',
     key: 'checked_at',
     width: 120,
-    fixed: 'left',
     sorter: (a: CheckResult, b: CheckResult) =>
       new Date(b.checked_at).getTime() - new Date(a.checked_at).getTime(),
     render: (r) => h('span', { title: formatTime(r.checked_at) }, relTime(r.checked_at)),
@@ -660,7 +659,7 @@ const columns: DataTableColumns<CheckResult> = [
                     v-if="t.uptime_pct != null"
                     class="uptime"
                     :class="uptimeClass(t.uptime_pct)"
-                    :title="`近 24 小时 ${t.uptime_total} 次检查的可用率；点击查看该目标 7 天趋势`"
+                    :title="`近 24 小时 ${t.uptime_total} 次检查的可用率；点击查看该目标 24 小时趋势`"
                     @click.stop="focusTrend(t.target_id)"
                   >
                     24h {{ t.uptime_pct }}%
