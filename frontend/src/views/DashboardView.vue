@@ -429,6 +429,7 @@ const columns: DataTableColumns<CheckResult> = [
     title: '时间',
     key: 'checked_at',
     width: 120,
+    fixed: 'left',
     render: (r) => h('span', { title: formatTime(r.checked_at) }, relTime(r.checked_at)),
   },
   {
@@ -474,6 +475,7 @@ const columns: DataTableColumns<CheckResult> = [
     title: '操作',
     key: 'action',
     width: 80,
+    fixed: 'right',
     render: (r) =>
       h(
         NButton,
