@@ -1,6 +1,7 @@
 """持久化层：配置（JSON）、结果（JSONL，append-only）、密钥（哈希化的访问码与 JWT secret）。"""
 import asyncio
 import json
+import logging
 import os
 from collections import deque
 from datetime import datetime, timedelta
@@ -13,11 +14,14 @@ from app.models import (
     CheckResult,
     Paginated,
     ResultFilter,
+    S3Config,
     Target,
     WebhookConfig,
     new_id,
 )
 from app.timeutil import hhmm_in_range
+
+logger = logging.getLogger(__name__)
 
 
 def atomic_write(path: Path, text: str) -> None:
@@ -48,6 +52,7 @@ class ConfigStore:
         self.targets: dict[str, Target] = {}
         self._webhook = WebhookConfig()
         self._app = AppSettings()
+        self._s3 = S3Config()
         self._load()
 
     def _load(self) -> None:
@@ -81,6 +86,12 @@ class ConfigStore:
                 self._app = AppSettings.model_validate(raw_app)
             except Exception:
                 pass
+        raw_s3 = raw.get("s3")
+        if isinstance(raw_s3, dict):
+            try:
+                self._s3 = S3Config.model_validate(raw_s3)
+            except Exception:
+                pass
         if backfill:
             # 旧版配置缺少 notify_enabled，补默认 true 并写回，保证字段齐全
             self._persist()
@@ -93,6 +104,7 @@ class ConfigStore:
             "check_targets": [t.model_dump(mode="json") for t in self.targets.values()],
             "webhook": self._webhook.model_dump(mode="json"),
             "app": self._app.model_dump(mode="json"),
+            "s3": self._s3.model_dump(mode="json"),
         }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -155,6 +167,23 @@ class ConfigStore:
             self._app = cfg
             self._persist()
         return self._app
+
+    async def get_s3_config(self) -> S3Config:
+        return self._s3
+
+    async def update_s3_config(self, cfg: S3Config) -> S3Config:
+        async with self._lock:
+            self._s3 = cfg
+            self._persist()
+        logger.info(
+            "S3 config updated: enabled=%s endpoint=%s bucket=%s region=%s datapath=%s",
+            cfg.enabled,
+            cfg.endpoint,
+            cfg.bucket,
+            cfg.region,
+            cfg.datapath,
+        )
+        return self._s3
 
 
 class ResultStore:
@@ -367,6 +396,8 @@ class SecretsStore:
         self.path = data_dir / "secrets.json"
         self.jwt_secret: str = ""
         self.access_code_hash: str = ""
+        self.s3_access_id: str = ""
+        self.s3_access_key: str = ""
         self._load()
 
     def _load(self) -> None:
@@ -376,10 +407,30 @@ class SecretsStore:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self.jwt_secret = raw.get("jwt_secret", "")
             self.access_code_hash = raw.get("access_code_hash", "")
+            self.s3_access_id = raw.get("s3_access_id", "")
+            self.s3_access_key = raw.get("s3_access_key", "")
         except (json.JSONDecodeError, OSError):
             pass
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"jwt_secret": self.jwt_secret, "access_code_hash": self.access_code_hash}
+        payload = {
+            "jwt_secret": self.jwt_secret,
+            "access_code_hash": self.access_code_hash,
+            "s3_access_id": self.s3_access_id,
+            "s3_access_key": self.s3_access_key,
+        }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+    def set_s3_credentials(self, access_id: str | None, access_key: str | None) -> None:
+        """更新 S3 凭据并落盘；None 表示该字段保持不变。日志只记录是否设置，不输出明文。"""
+        if access_id is not None:
+            self.s3_access_id = access_id
+        if access_key is not None:
+            self.s3_access_key = access_key
+        self.save()
+        logger.info(
+            "S3 credentials updated (access_id set=%s, access_key set=%s)",
+            access_id is not None,
+            access_key is not None,
+        )

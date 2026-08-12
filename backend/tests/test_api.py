@@ -1,3 +1,4 @@
+import json
 import re
 
 from fastapi.testclient import TestClient
@@ -462,3 +463,72 @@ def test_results_api_datetime_range_filter(logged_client: TestClient, fake_check
         "/api/v1/results", params={"start_at": start, "end_at": end}
     ).json()
     assert span["total"] >= 1
+
+
+def test_s3_settings_crud(logged_client: TestClient):
+    """S3 配置：默认值、保存、凭据落 secrets.json、密钥不回读、留空不改、必填校验。"""
+    resp = logged_client.get("/api/v1/settings/s3")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is False
+    assert data["has_credentials"] is False
+    assert "access_id" not in data and "access_key" not in data  # 密钥明文永不回读
+
+    payload = {
+        "enabled": True,
+        "endpoint": "https://s3.example.com",
+        "bucket": "cc-data",
+        "region": "us-east-1",
+        "datapath": "connection-checker/",
+        "access_id": "minioadmin",
+        "access_key": "minioadmin123",
+    }
+    resp = logged_client.put("/api/v1/settings/s3", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True
+    assert data["endpoint"] == "https://s3.example.com"
+    assert data["region"] == "us-east-1"
+    assert data["has_credentials"] is True
+
+    # 配置与凭据落盘位置分离
+    data_dir = logged_client.app.state.settings.data_dir
+    cfg_raw = json.loads((data_dir / "config.json").read_text(encoding="utf-8"))
+    assert cfg_raw["s3"]["bucket"] == "cc-data"
+    secrets_raw = json.loads((data_dir / "secrets.json").read_text(encoding="utf-8"))
+    assert secrets_raw["s3_access_id"] == "minioadmin"
+    assert secrets_raw["s3_access_key"] == "minioadmin123"
+
+    # 凭据字段留空 = 不修改
+    resp = logged_client.put(
+        "/api/v1/settings/s3",
+        json={
+            "enabled": True,
+            "endpoint": "https://s3.example.com",
+            "bucket": "cc-data",
+            "datapath": "cc/",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["has_credentials"] is True
+    secrets_raw = json.loads((data_dir / "secrets.json").read_text(encoding="utf-8"))
+    assert secrets_raw["s3_access_key"] == "minioadmin123"
+
+    # 启用 S3 但缺必填字段 → 422
+    resp = logged_client.put("/api/v1/settings/s3", json={"enabled": True, "bucket": "x"})
+    assert resp.status_code == 422
+
+    # 可以清除凭据（显式传空字符串）
+    resp = logged_client.put(
+        "/api/v1/settings/s3",
+        json={
+            "enabled": True,
+            "endpoint": "https://s3.example.com",
+            "bucket": "cc-data",
+            "datapath": "cc/",
+            "access_id": "",
+            "access_key": "",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["has_credentials"] is False

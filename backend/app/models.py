@@ -151,6 +151,16 @@ class WebhookConfig(BaseModel):
     fail_threshold: int = Field(default=3, ge=1, le=100)  # 连续失败次数
 
 
+class S3Config(BaseModel):
+    """S3 兼容存储配置，存于 config.json 的 s3 节；凭据（access id/key）存 secrets.json。"""
+
+    enabled: bool = False
+    endpoint: str = Field(default="", max_length=500)  # S3 服务地址，如 https://s3.example.com
+    bucket: str = Field(default="", max_length=255)
+    region: str | None = Field(default=None, max_length=100)  # 可选，部分 S3 服务要求
+    datapath: str = Field(default="", max_length=500)  # 数据在 bucket 中的路径前缀
+
+
 class AppSettings(BaseModel):
     """全局检查参数，存于 config.json 的 app 节（非环境变量，前端可配置）。"""
 

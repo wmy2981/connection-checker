@@ -27,7 +27,7 @@ import { api } from '@/api'
 import AppFooter from '@/components/AppFooter.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
-import type { AppSettings, LogEntry, Target, TargetInput, WebhookConfig } from '@/types'
+import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -51,6 +51,17 @@ const appSettings = ref<AppSettings>({
   log_level: 'INFO',
 })
 const appSaving = ref(false)
+
+const s3 = ref<S3Config>({
+  enabled: false,
+  endpoint: '',
+  bucket: '',
+  region: null,
+  datapath: '',
+  has_credentials: false,
+})
+const s3Credentials = ref<{ access_id: string; access_key: string }>({ access_id: '', access_key: '' })
+const s3Saving = ref(false)
 
 const logLevelOptions = [
   { label: 'DEBUG', value: 'DEBUG' },
@@ -273,10 +284,41 @@ async function saveWebhook() {
   }
 }
 
+async function loadS3() {
+  try {
+    s3.value = await api.getS3Config()
+  } catch {
+    /* 401 由 client 处理 */
+  }
+}
+
+async function saveS3() {
+  s3Saving.value = true
+  try {
+    const payload: S3ConfigInput = {
+      enabled: s3.value.enabled,
+      endpoint: s3.value.endpoint.trim(),
+      bucket: s3.value.bucket.trim(),
+      region: s3.value.region?.trim() || null,
+      datapath: s3.value.datapath.trim(),
+      access_id: s3Credentials.value.access_id.trim() || null,
+      access_key: s3Credentials.value.access_key || null,
+    }
+    s3.value = await api.updateS3Config(payload)
+    s3Credentials.value = { access_id: '', access_key: '' }
+    message.success('S3 配置已保存')
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    s3Saving.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadAppSettings()
   loadWebhook()
+  loadS3()
 })
 
 function openCreate() {
@@ -511,6 +553,54 @@ const columns: DataTableColumns<Target> = [
             <n-space justify="end">
               <n-button :loading="webhookTesting" @click="testWebhook">测试推送</n-button>
               <n-button type="primary" :loading="webhookSaving" @click="saveWebhook">保存告警配置</n-button>
+            </n-space>
+          </n-space>
+          </n-card>
+
+          <n-card title="S3 存储配置" size="small">
+          <n-space vertical size="large">
+            <n-space align="center" :size="12">
+              <span>启用 S3</span>
+              <n-switch v-model:value="s3.enabled" />
+              <span class="hint">检查记录/日志的 S3 兼容存储；启用前需填写 endpoint/bucket/数据路径与凭据</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">Endpoint</span>
+              <n-input v-model:value="s3.endpoint" placeholder="https://s3.example.com" clearable style="width: 300px" />
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">Bucket</span>
+              <n-input v-model:value="s3.bucket" placeholder="存储桶名称" clearable style="width: 200px" />
+              <span class="label">Region（可选）</span>
+              <n-input v-model:value="s3.region" placeholder="部分服务要求" clearable style="width: 150px" />
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">数据路径</span>
+              <n-input
+                v-model:value="s3.datapath"
+                placeholder="如 connection-checker/，数据在 bucket 中的路径前缀"
+                clearable
+                style="width: 300px"
+              />
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">Access ID</span>
+              <n-input v-model:value="s3Credentials.access_id" placeholder="留空则不修改" clearable style="width: 300px" />
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">Access Key</span>
+              <n-input
+                v-model:value="s3Credentials.access_key"
+                type="password"
+                show-password-on="click"
+                placeholder="留空则不修改"
+                clearable
+                style="width: 300px"
+              />
+            </n-space>
+            <n-space align="end" :size="12">
+              <span v-if="s3.enabled && !s3.has_credentials" class="hint">尚未配置凭据，S3 功能不可用</span>
+              <n-button type="primary" :loading="s3Saving" @click="saveS3">保存 S3 配置</n-button>
             </n-space>
           </n-space>
           </n-card>

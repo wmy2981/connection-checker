@@ -5,6 +5,8 @@ import type {
   LogQueryParams,
   Paginated,
   ResultFilterParams,
+  S3Config,
+  S3ConfigInput,
   StatsSummary,
   Target,
   TargetInput,
@@ -88,6 +90,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(url ? { url } : {}),
     }),
+  getS3Config: () => request<S3Config>('/settings/s3'),
+  updateS3Config: (cfg: S3ConfigInput) =>
+    request<S3Config>('/settings/s3', { method: 'PUT', body: JSON.stringify(cfg) }),
   queryLogs: (params: LogQueryParams) =>
     request<Paginated<LogEntry>>(`/logs${buildQuery(params as ResultFilterParams)}`),
   exportLogs: (params: LogQueryParams) =>

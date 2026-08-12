@@ -108,6 +108,20 @@ export interface WebhookConfig {
   fail_threshold: number
 }
 
+export interface S3Config {
+  enabled: boolean
+  endpoint: string
+  bucket: string
+  region: string | null
+  datapath: string
+  has_credentials: boolean
+}
+
+export type S3ConfigInput = Omit<S3Config, 'has_credentials'> & {
+  access_id?: string | null
+  access_key?: string | null
+}
+
 export interface AppSettings {
   result_max_records: number
   ping_count: number
