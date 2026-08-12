@@ -74,7 +74,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `ip` | string | 是 | IP 或主机名 |
-| `check_method` | string | 是 | `ping` / `port` / `http` |
+| `check_method` | string | 是 | `ping` / `port` / `http` / `dns` |
 | `name` | string | 否 | 名称 |
 | `check_interval` | int | 否 | 秒，默认 60；`0` = 关闭定时检查（仅手动触发） |
 | `time_ranges` | array | 否 | `[{start, end}]`，默认全天，支持跨午夜 |
@@ -84,7 +84,7 @@
 | `port` | int | 条件 | `port` 方式必填；`http` 方式可覆盖默认端口 |
 | `scheme` | string | 否 | `http` / `https`，默认 `http` |
 | `url_path` | string | 否 | `http` 方式路径，默认 `/` |
-| `http_success_codes` | array | 否 | `http` 方式期望状态码，默认 200–399 |
+| `http_success_codes` | array | 否 | `http` 方式期望状态码，默认 200–399；须为 100–599 的整数，越界 422 |
 | `timeout` | number | 否 | 覆盖全局超时（秒） |
 
 ### PUT /targets/{target_id}
