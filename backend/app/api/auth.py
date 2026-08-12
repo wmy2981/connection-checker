@@ -25,8 +25,10 @@ async def login(request: Request, body: LoginRequest, response: Response) -> dic
 
 
 @router.post("/logout", dependencies=[Depends(require_auth)])
-async def logout(response: Response) -> dict:
+async def logout(request: Request, response: Response) -> dict:
+    client = (request.client.host if request.client else "?")
     response.delete_cookie("session", path="/")
+    logger.info("Logout (client %s)", client)
     return {"ok": True}
 
 
