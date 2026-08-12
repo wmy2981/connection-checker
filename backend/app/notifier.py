@@ -28,6 +28,10 @@ class Notifier:
         if result.status == "success":
             was_alerted = tid in self._alerted
             self._fails[tid] = 0
+            logger.debug(
+                "Target %s consecutive fails reset to 0",
+                result.target_name or result.ip,
+            )
             if was_alerted:
                 self._alerted.discard(tid)
                 logger.info(
@@ -39,6 +43,12 @@ class Notifier:
 
         n = self._fails.get(tid, 0) + 1
         self._fails[tid] = n
+        logger.debug(
+            "Target %s consecutive fails=%d threshold=%d",
+            result.target_name or result.ip,
+            n,
+            cfg.fail_threshold,
+        )
         if n == cfg.fail_threshold:
             self._alerted.add(tid)
             logger.warning(

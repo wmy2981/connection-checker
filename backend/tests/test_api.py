@@ -568,3 +568,16 @@ def test_check_fail_timeout_log_warning(logged_client, fake_checker, no_schedule
     with caplog.at_level(logging.WARNING):
         logged_client.post("/api/v1/checks/run", json={})
     assert not any("Check " in r.message for r in caplog.records)
+
+
+def test_check_debug_nodes_logged(logged_client, fake_checker, no_scheduler, caplog):
+    """关键节点在 DEBUG 级记录：开始检查、结果存储。"""
+    import logging
+
+    fake_checker(status="success", message="ok")
+    logged_client.post("/api/v1/targets", json=_payload())
+    with caplog.at_level(logging.DEBUG):
+        logged_client.post("/api/v1/checks/run", json={})
+    msgs = [r.message for r in caplog.records]
+    assert any(m.startswith("Starting check") for m in msgs)
+    assert any(m.startswith("Result stored") for m in msgs)

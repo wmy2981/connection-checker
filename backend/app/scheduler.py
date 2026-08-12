@@ -105,6 +105,14 @@ class Scheduler:
             if target.check_method == "http"
             else app_cfg.connect_timeout
         )
+        logger.debug(
+            "Starting check %s (%s) [%s] timeout=%ss ping_count=%s",
+            target.name or target.ip,
+            target.id,
+            target.check_method,
+            default_timeout,
+            target.ping_count or app_cfg.ping_count,
+        )
         checker = build_checker(
             target,
             default_timeout=default_timeout,
@@ -123,6 +131,12 @@ class Scheduler:
             extra=outcome.extra,
         )
         await self.result_store.append(result)
+        logger.debug(
+            "Result stored: id=%s status=%s latency=%sms",
+            result.id,
+            result.status,
+            result.latency_ms,
+        )
         await self.notifier.observe(result)
         args = (
             target.name or target.ip,
