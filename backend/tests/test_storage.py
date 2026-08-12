@@ -308,6 +308,28 @@ async def test_uptime_per_target(tmp_path):
     assert up6["t1"]["uptime_pct"] == round(2 / 3 * 100, 1)
 
 
+async def test_trend_filter_by_target(tmp_path):
+    """trend 支持按目标过滤：只统计指定目标的记录。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    await store.append(_result("t1", "success", now))
+    await store.append(_result("t1", "fail", now))
+    await store.append(_result("t2", "success", now))
+
+    all_buckets = await store.trend(24)
+    last = all_buckets[-1]
+    assert last["total"] == 3
+
+    t1_buckets = await store.trend(24, target_id="t1")
+    t1_last = t1_buckets[-1]
+    assert t1_last["total"] == 2
+    assert t1_last["success"] == 1
+    assert t1_last["fail"] == 1
+
+    t2_buckets = await store.trend(24, target_id="t2")
+    assert t2_buckets[-1]["total"] == 1
+
+
 async def test_result_store_datetime_range_cross_day(tmp_path):
     """start_at/end_at 完整时间范围过滤，支持跨日（如 22:00 到次日 06:00）。"""
     store = ResultStore(tmp_path / "results.jsonl", max_records=100)

@@ -57,6 +57,14 @@ async def summary(request: Request) -> StatsSummary:
 
 
 @router.get("/trend")
-async def trend(request: Request, hours: int = Query(default=24, ge=1, le=168)) -> dict:
+async def trend(
+    request: Request,
+    hours: int = Query(default=24, ge=1, le=168),
+    target_id: str | None = Query(default=None, description="按目标过滤，空为全部目标"),
+) -> dict:
     result_store = request.app.state.result_store
-    return {"hours": hours, "buckets": await result_store.trend(hours)}
+    return {
+        "hours": hours,
+        "target_id": target_id,
+        "buckets": await result_store.trend(hours, target_id),
+    }

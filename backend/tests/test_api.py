@@ -394,6 +394,30 @@ def test_stats_trend(logged_client: TestClient, fake_checker, no_scheduler):
     assert trend["buckets"][-1]["success"] == 1
 
 
+def test_stats_trend_filter_by_target(logged_client: TestClient, fake_checker, no_scheduler):
+    """trend 按 target_id 过滤：单目标趋势与全量分离，未知目标返回空桶。"""
+    fake_checker(status="success", message="ok")
+    r1 = logged_client.post("/api/v1/targets", json=_payload(name="a", ip="8.8.8.1"))
+    logged_client.post("/api/v1/targets", json=_payload(name="b", ip="8.8.8.2"))
+    logged_client.post("/api/v1/checks/run", json={})
+    t1 = r1.json()["id"]
+
+    all_trend = logged_client.get("/api/v1/stats/trend", params={"hours": 24}).json()
+    assert all_trend["target_id"] is None
+    assert all_trend["buckets"][-1]["total"] == 2
+
+    one = logged_client.get(
+        "/api/v1/stats/trend", params={"hours": 24, "target_id": t1}
+    ).json()
+    assert one["target_id"] == t1
+    assert one["buckets"][-1]["total"] == 1
+
+    none = logged_client.get(
+        "/api/v1/stats/trend", params={"hours": 24, "target_id": "ghost"}
+    ).json()
+    assert none["buckets"][-1]["total"] == 0
+
+
 def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     fake_checker(status="fail", message="超时了")
     logged_client.post("/api/v1/targets", json=_payload())

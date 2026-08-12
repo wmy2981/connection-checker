@@ -78,7 +78,10 @@ export const api = {
       body: JSON.stringify(targetId ? { target_id: targetId } : {}),
     }),
   stats: () => request<StatsSummary>('/stats/summary'),
-  statsTrend: (hours = 24) => request<TrendData>(`/stats/trend?hours=${hours}`),
+  statsTrend: (hours = 24, targetId?: string) =>
+    request<TrendData>(
+      `/stats/trend?hours=${hours}${targetId ? `&target_id=${encodeURIComponent(targetId)}` : ''}`,
+    ),
   getAppSettings: () => request<AppSettings>('/settings/app'),
   updateAppSettings: (cfg: AppSettings) =>
     request<AppSettings>('/settings/app', { method: 'PUT', body: JSON.stringify(cfg) }),

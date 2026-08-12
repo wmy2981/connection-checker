@@ -340,6 +340,35 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/targets
 
 状态计数为最近 50 条检查结果的统计；`target_status` 为每个目标的最新一次结果；`uptime_pct` / `uptime_total` 为该目标近 24 小时滚动窗口的可用率（无样本时为 `null`）与检查次数。
 
+### GET /stats/trend
+
+按小时聚合的成功率趋势（本地时区，空时段补齐为 0）。
+
+查询参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `hours` | 窗口小时数，默认 24，范围 1–168 |
+| `target_id` | 只统计指定目标；缺省为全部目标 |
+
+```json
+{
+  "hours": 24,
+  "target_id": null,
+  "buckets": [
+    {
+      "bucket": "2026-08-12T00:00",
+      "total": 60,
+      "success": 59,
+      "fail": 1,
+      "timeout": 0,
+      "error": 0,
+      "avg_latency_ms": 12.4
+    }
+  ]
+}
+```
+
 ## 实时推送（SSE）
 
 ### GET /stream

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NBadge,
@@ -143,13 +143,27 @@ async function fetchStats() {
   }
 }
 
+// 趋势图目标筛选：null = 全部目标
+const trendTargetId = ref<string | null>(null)
+
+const trendOptions = computed(() =>
+  (stats.value?.target_status ?? []).map((t) => ({
+    label: t.name ? `${t.name} (${t.ip})` : t.ip,
+    value: t.target_id,
+  })),
+)
+
 async function fetchTrend() {
   try {
-    trend.value = await api.statsTrend(24)
+    trend.value = await api.statsTrend(24, trendTargetId.value ?? undefined)
   } catch {
     /* 401 由 client 统一跳转 */
   }
 }
+
+watch(trendTargetId, () => {
+  void fetchTrend()
+})
 
 async function fetchResults() {
   loading.value = true
@@ -442,6 +456,16 @@ const columns: DataTableColumns<CheckResult> = [
           </n-card>
 
           <n-card title="成功率趋势（近 24 小时）" size="small">
+            <template #header-extra>
+              <n-select
+                v-model:value="trendTargetId"
+                :options="trendOptions"
+                clearable
+                placeholder="全部目标"
+                size="small"
+                style="width: 200px"
+              />
+            </template>
             <TrendChart v-if="trend && trend.buckets.length" :buckets="trend.buckets" />
             <n-empty v-else description="暂无数据" />
           </n-card>

@@ -476,8 +476,13 @@ class ResultStore:
             all_results = list(self._results)
         return [r for r in reversed(all_results) if self._matches(f, r)]
 
-    async def trend(self, hours: int = 24) -> list[dict[str, Any]]:
-        """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。"""
+    async def trend(
+        self, hours: int = 24, target_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。
+
+        target_id 指定时只统计该目标，用于单目标趋势排查。
+        """
         async with self._lock:
             results = list(self._results)
         now = datetime.now().astimezone()
@@ -497,6 +502,8 @@ class ResultStore:
             }
         lat: dict[str, list[float]] = {}
         for r in results:
+            if target_id is not None and r.target_id != target_id:
+                continue
             t = r.checked_at.astimezone()
             if t < cutoff:
                 continue
