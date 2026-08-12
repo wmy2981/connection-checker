@@ -33,6 +33,7 @@ import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import TrendChart from '@/components/TrendChart.vue'
 import { formatDateTime, relativeTime } from '@/composables/useAppTime'
+import { copyText } from '@/composables/useClipboard'
 import type { CheckResult, ResultFilterParams, StatsSummary, TrendData } from '@/types'
 
 const router = useRouter()
@@ -377,6 +378,13 @@ async function runOne(targetId: string) {
 async function logout() {
   await api.logout()
   router.push('/login')
+}
+
+async function copyDetailExtra() {
+  if (!detail.value) return
+  const ok = await copyText(JSON.stringify(detail.value.extra, null, 2))
+  if (ok) message.success('附加数据已复制')
+  else message.warning('浏览器限制自动复制，请手动选中复制')
 }
 
 // --- SSE 实时推送 ---
@@ -760,7 +768,10 @@ const columns: DataTableColumns<CheckResult> = [
         </n-descriptions-item>
         <n-descriptions-item label="信息">{{ detail.message }}</n-descriptions-item>
         <n-descriptions-item label="附加数据">
-          <pre class="extra">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
+          <div class="extra-wrap">
+            <n-button size="tiny" secondary class="extra-copy" @click="copyDetailExtra">复制 JSON</n-button>
+            <pre class="extra">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
+          </div>
         </n-descriptions-item>
       </n-descriptions>
       <template #footer>
@@ -926,6 +937,14 @@ const columns: DataTableColumns<CheckResult> = [
 .pager-info {
   color: var(--cc-text-3);
   font-size: 13px;
+}
+.extra-wrap {
+  position: relative;
+}
+.extra-copy {
+  position: absolute;
+  top: -28px;
+  right: 0;
 }
 .extra {
   margin: 0;
