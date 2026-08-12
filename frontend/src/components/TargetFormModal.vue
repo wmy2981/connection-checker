@@ -65,6 +65,10 @@ const intervalOptions = [
   { label: '1h', value: 3600 },
 ]
 
+// 常用端口与超时快捷选择
+const portOptions = [80, 443, 22, 8080, 3306, 5432]
+const timeoutOptions = [1, 3, 5, 10]
+
 watch(
   () => [props.show, props.target],
   async () => {
@@ -207,7 +211,21 @@ function submit() {
 
         <template v-if="form.check_method === 'port'">
           <n-form-item label="端口" required>
-            <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width: 100%" />
+            <n-space vertical style="width: 100%">
+              <n-input-number v-model:value="form.port" :min="1" :max="65535" style="width: 100%" />
+              <n-space :size="4" wrap>
+                <n-button
+                  v-for="p in portOptions"
+                  :key="p"
+                  size="tiny"
+                  secondary
+                  :type="form.port === p ? 'primary' : 'default'"
+                  @click="form.port = p"
+                >
+                  {{ p }}
+                </n-button>
+              </n-space>
+            </n-space>
           </n-form-item>
         </template>
 
@@ -255,7 +273,21 @@ function submit() {
           </n-space>
         </n-form-item>
         <n-form-item label="超时(秒)">
-          <n-input-number v-model:value="form.timeout" :min="0.1" :step="0.5" :show-button="false" style="width: 100%" placeholder="留空用默认值" />
+          <n-space vertical style="width: 100%">
+            <n-input-number v-model:value="form.timeout" :min="0.1" :step="0.5" :show-button="false" style="width: 100%" placeholder="留空用默认值" />
+            <n-space :size="4" wrap>
+              <n-button
+                v-for="t in timeoutOptions"
+                :key="t"
+                size="tiny"
+                secondary
+                :type="form.timeout === t ? 'primary' : 'default'"
+                @click="form.timeout = t"
+              >
+                {{ t }}s
+              </n-button>
+            </n-space>
+          </n-space>
         </n-form-item>
         <n-form-item label="启用">
           <n-switch v-model:value="form.enabled" />
