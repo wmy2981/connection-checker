@@ -47,5 +47,5 @@ FastAPI 单体后端（`requires-python >=3.10`），包位于 `backend/app`（s
 
 - config.json 原子写（`atomic_write`：临时文件 + os.replace）；密钥/凭据存 secrets.json，**接口不回读明文**
 - ResultStore：本地文件追加写 + 超限整文件重写（resize 是同步方法）；`storage_mode` 与 S3 配置变更由 scheduler watchdog 调 `set_s3_mode` 热更新
-- S3 对象按天（`datapath/results/YYYY-MM-DD.jsonl`）永久保留：合并去重后整对象上传，写失败 ERROR 日志并降级本地（结果不丢）
+- S3 对象按天（`datapath/results/YYYY-MM-DD.jsonl`）永久保留：合并去重后整对象上传，写失败 ERROR 日志并降级本地（结果不丢）；ResultStore 维护待补传日期集合（`_dirty_dates`）：启动 / `set_s3_mode` 新启用 S3 时本地全部历史按天补传，append 只产生当天日期，同步失败的日期保留待下次 append 自动重试（跨天失败自愈）
 - 日志清理在 `log_cleaner.py` 独立循环，不依赖 DailyFileHandler 轮转；upload 上传成功后才删本地

@@ -1,5 +1,6 @@
+import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models import AppSettings, CheckResult, ResultFilter, Target, TimeRange, WebhookConfig
 from app.storage import ConfigStore, ResultStore
@@ -365,6 +366,7 @@ class FakeS3:
         from types import SimpleNamespace
 
         self.cfg = SimpleNamespace(datapath=datapath, bucket="cc")
+        self.bucket = "cc"  # 对齐真实 S3Storage 接口（sync 成功日志访问该属性）
         self.objects: dict[str, bytes] = {}
         self.fail_put = False
         self.put_calls = 0
@@ -483,3 +485,76 @@ def test_result_store_set_s3_mode_switches(tmp_path):
     assert store._s3_prefix == "data/results/"
     store.set_s3_mode("local", None, "", "")
     assert store._s3 is None
+
+
+async def test_result_store_backfills_history_on_startup(tmp_path):
+    """启用 S3 启动时：本地全部历史日期（非当天）补传到 S3 对应对象。"""
+    # 先以 local 模式写入两天数据
+    local = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="local")
+    d1 = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    d2 = _result("t2", "success", datetime.now(timezone.utc))
+    await local.append(d1)
+    await local.append(d2)
+    date1 = d1.checked_at.astimezone().strftime("%Y-%m-%d")
+    date2 = d2.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert date1 != date2
+
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    assert {f"data/results/{d}.jsonl" for d in (date1, date2)} <= set(s3.objects)
+    assert not store._dirty_dates
+    # 补传后本地记录仍在（合并去重，不丢）
+    assert len(await store.recent(10)) == 2
+
+
+async def test_set_s3_mode_backfills_history(tmp_path, monkeypatch):
+    """热切换 local→both：本地历史数据由后台任务补传到 S3。"""
+    from app.models import S3Config
+
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="local")
+    d1 = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    d2 = _result("t2", "success", datetime.now(timezone.utc))
+    await store.append(d1)
+    await store.append(d2)
+    date1 = d1.checked_at.astimezone().strftime("%Y-%m-%d")
+    date2 = d2.checked_at.astimezone().strftime("%Y-%m-%d")
+
+    s3 = FakeS3()
+    # set_s3_mode 内部构造真实 minio 客户端（会发网络请求），monkeypatch 换 FakeS3
+    monkeypatch.setattr("app.storage.S3Storage", lambda _cfg, _id, _key: s3)
+    store.set_s3_mode(
+        "both",
+        S3Config(enabled=True, endpoint="http://x", bucket="test-bucket", datapath="data/"),
+        "id",
+        "key",
+    )
+    # 等待后台补传任务完成
+    for _ in range(200):
+        if not store._dirty_dates:
+            break
+        await asyncio.sleep(0.01)
+    assert not store._dirty_dates
+    assert {f"data/results/{d}.jsonl" for d in (date1, date2)} <= set(s3.objects)
+
+
+async def test_s3_sync_failure_retries_stale_date(tmp_path, caplog):
+    """当天同步失败后日期保留；S3 恢复后，下次 append 把失败日期一并补传。"""
+    import logging
+
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    old = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    s3.fail_put = True
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        await store.append(old)
+    date_old = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert date_old in store._dirty_dates  # 失败日期保留待重试
+
+    s3.fail_put = False
+    caplog.clear()
+    fresh = _result("t2", "fail", datetime.now(timezone.utc))
+    await store.append(fresh)
+    date_fresh = fresh.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert not store._dirty_dates
+    expected = {f"data/results/{d}.jsonl" for d in (date_old, date_fresh)}
+    assert set(s3.objects) == expected

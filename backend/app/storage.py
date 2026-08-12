@@ -204,7 +204,8 @@ class ResultStore:
 
     storage_mode=local 仅本地；=both 本地 + S3 双写；=s3 主存 S3（本地文件作兜底缓冲），
     启动时从 S3 加载并合并本地文件补缺。S3 按天对象 datapath/results/YYYY-MM-DD.jsonl
-    永久保留（不随本地裁剪丢失）。
+    永久保留（不随本地裁剪丢失）。启用 S3（启动或切换存储模式）时本地全部历史按天补传，
+    日常 append 只同步当天，同步失败的日期保留待重试。
     """
 
     def __init__(
@@ -223,7 +224,14 @@ class ResultStore:
         self._results: deque[CheckResult] = deque()
         self._seen_ids: set[str] = set()
         self._subscribers: set[asyncio.Queue] = set()
+        # 待补传到 S3 的日期（YYYY-MM-DD）：启动/切换存储模式时覆盖本地全部历史，
+        # 之后 append 只产生当天；同步失败的日期保留，下次 append 自动重试
+        self._dirty_dates: set[str] = set()
         self._load()
+        if self._s3 is not None:
+            self._dirty_dates.update(self._local_dates())
+            # 启动时尽力补传本地历史到 S3（失败仅留日志，日期保留待重试，不阻塞启动）
+            self._sync_dirty()
 
     def _load(self) -> None:
         merge_local = False
@@ -274,6 +282,7 @@ class ResultStore:
         self, storage_mode: str, s3_cfg: S3Config | None, access_id: str, access_key: str
     ) -> None:
         """热更新存储模式与 S3 客户端（配置变更后由 watchdog 调用）。"""
+        had_s3 = self._s3 is not None
         if (
             storage_mode == "local"
             or s3_cfg is None
@@ -286,11 +295,32 @@ class ResultStore:
             self._s3 = S3Storage(s3_cfg, access_id, access_key)
             self._storage_mode = storage_mode
         self._s3_prefix = self._s3.cfg.datapath.rstrip("/") + "/results/" if self._s3 else ""
+        if self._s3 is not None and not had_s3:
+            # S3 新启用：本地历史数据也要补传（append 只同步当天）
+            self._dirty_dates.update(self._local_dates())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None  # 无事件循环（如单测直调）：补传留给下次 append
+            if loop is not None:
+                loop.create_task(self._backfill_s3_task(), name="s3-backfill")
         logger.info(
             "Result storage mode=%s s3=%s",
             self._storage_mode,
             "enabled" if self._s3 else "disabled",
         )
+
+    def _local_dates(self) -> set[str]:
+        """内存中现有记录涉及的日期集合（本地时区），用于补传 S3。"""
+        return {r.checked_at.astimezone().strftime("%Y-%m-%d") for r in self._results}
+
+    async def _backfill_s3_task(self) -> None:
+        """S3 新启用后的历史数据后台补传（持锁防与 append 并发读 deque）。"""
+        async with self._lock:
+            try:
+                await asyncio.to_thread(self._sync_dirty)
+            except Exception as e:  # noqa: BLE001
+                logger.error("S3 results backfill failed: %s", e)
 
     def _persist_all(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -324,16 +354,25 @@ class ResultStore:
             if trimmed:
                 self._persist_all()
             if self._s3 is not None:
+                # 当天日期必然需要同步；失败的旧日期也保留在 _dirty_dates 里重试
+                self._dirty_dates.add(result.checked_at.astimezone().strftime("%Y-%m-%d"))
                 try:
-                    await asyncio.to_thread(
-                        self._sync_to_s3,
-                        result.checked_at.astimezone().strftime("%Y-%m-%d"),
-                    )
+                    await asyncio.to_thread(self._sync_dirty)
                 except Exception as e:  # noqa: BLE001
                     logger.error(
                         "S3 results sync failed: %s; results kept in local file", e
                     )
         await self._broadcast(result)
+
+    def _sync_dirty(self) -> None:
+        """把待补传日期逐个同步到 S3；失败中断并保留日期，下次 append 自动重试。"""
+        for date_str in sorted(self._dirty_dates):
+            try:
+                self._sync_to_s3(date_str)
+            except Exception as e:  # noqa: BLE001
+                logger.error("S3 results sync failed for %s: %s", date_str, e)
+                return
+            self._dirty_dates.discard(date_str)
 
     def _sync_to_s3(self, date_str: str) -> None:
         """把指定日期当天的记录全量合并上传为 S3 对象（按 id 去重，永久保留）。

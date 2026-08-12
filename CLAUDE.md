@@ -79,4 +79,4 @@ data/          运行时数据（config.json / secrets.json / results.jsonl / lo
 
 - `config.json`：顶层 `version` / `last_updated` / `check_targets` / `webhook` / `app` / `s3` 节，原子写（临时文件 + os.replace），watchdog 热加载
 - `secrets.json`：密钥类数据（jwt_secret、access_code_hash、S3 凭据、api_token），**明文凭据不落 config.json、接口不回读**（GET /settings/s3 只返回 has_credentials）
-- `results.jsonl`：检查记录追加写、超上限整文件重写；存储模式 `app.storage_mode`（local/s3/both，S3 按天对象永久保留、写失败降级本地）
+- `results.jsonl`：检查记录追加写、超上限整文件重写；存储模式 `app.storage_mode`（local/s3/both，S3 按天对象永久保留、写失败降级本地）；启用 S3（启动或切换存储模式）时本地全部历史按天补传，同步失败的日期保留待下次 append 自动重试（跨天失败不丢数据）
