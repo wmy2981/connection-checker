@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.auth import require_auth
@@ -126,8 +126,11 @@ def _filtered(
         else None
     )
     srcs = [s.strip().lower() for s in source.split(",") if s.strip()] if source else None
-    start_dt = _normalize_ts(start) if start else None
-    end_dt = _normalize_ts(end) if end else None
+    try:
+        start_dt = _normalize_ts(start) if start else None
+        end_dt = _normalize_ts(end) if end else None
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"无效的时间格式: {e}") from None
     for entry in _entries(request, start_dt, end_dt):
         if levels and _norm_level(entry["level"].upper()) not in levels:
             continue

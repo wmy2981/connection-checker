@@ -144,6 +144,14 @@ def test_logs_api_source_filter(logged_client, no_scheduler):
     assert resp.json()["total"] == 0
 
 
+def test_logs_invalid_time_param_422(logged_client, no_scheduler):
+    """非法 start/end 时间格式返回 422 而非 500（回归）。"""
+    resp = logged_client.get("/api/v1/logs", params={"start": "not-a-date"})
+    assert resp.status_code == 422
+    resp = logged_client.get("/api/v1/logs/export", params={"end": "2026-13-99"})
+    assert resp.status_code == 422
+
+
 def test_logs_sources_endpoint(logged_client, no_scheduler):
     """来源枚举接口返回去重后的文件名/模块名。"""
     logging.getLogger("app.scheduler").warning("logs-sources-probe")
