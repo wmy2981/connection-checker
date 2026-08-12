@@ -20,7 +20,7 @@ data/          运行时数据（config.json / secrets.json / results.jsonl / lo
 
 ## 项目概览
 
-自托管网络连通性监控工具（Ping / TCP / HTTP / DNS 检查 + Web 仪表盘 + Webhook 告警）。FastAPI 后端 + Vue3 前端，单 Docker 镜像（ghcr）部署，数据用 JSON/JSONL 文件存储，无数据库。
+自托管网络连通性监控工具（Ping / TCP / HTTP / DNS 检查 + Web 仪表盘 + Webhook 告警）。FastAPI 后端 + Vue3 前端，单 Docker 镜像（ghcr）部署，数据用 JSON/JSONL 文件存储，无数据库。仪表盘含 24h 可用率/连败统计、24h/7 天趋势（SVG 手绘）、检查记录筛选与导出、SSE 实时刷新；支持品牌图标自定义与多级日志。
 
 ## 常用命令
 
@@ -63,20 +63,23 @@ data/          运行时数据（config.json / secrets.json / results.jsonl / lo
 - 日志文件：`data/logs/app-YYYY-MM-DD.log`，按本地时区（`datetime.now().astimezone()`，容器 TZ 生效）每天轮转；同时输出控制台
 - 行格式：`时间 | 级别 | logger名 | 文件:行号 | 消息`（`%(filename)s:%(lineno)d`，精细到产生日志的 Python 文件）；旧版无来源段的 4 段行解析时兼容（source 为 null）
 - 级别存 `config.json` 的 `app.log_level`（DEBUG/INFO/WARN/ERROR，默认 INFO），watchdog 检测到配置变更时热更新
-- 日志分级约定：检查 error → ERROR、失败/超时 → WARN、成功 → INFO、检查器内部明细与 HTTP 访问日志 → DEBUG（uvicorn.access 固定 DEBUG，默认级别不刷屏）
-- 自动清理：`app.log_cleanup_mode`（none/delete/upload）+ `log_retention_days`（默认 30），由 `log_cleaner.py` 每 6 小时执行；upload 模式上传 S3 成功后删本地，S3 永久保留
-- 查看/导出：`GET /api/v1/logs`（参数 level=多选逗号分隔、start/end=本地时间 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM:SS、source=来源筛选（文件名如 scheduler.py 或模块名如 app.scheduler，多选逗号分隔、子串匹配、大小写不敏感）、page/page_size，倒序分页，traceback 续行合并）、`GET /api/v1/logs/export`（导出 .log 文本）、`GET /api/v1/logs/sources`（日志中出现过的来源去重枚举，供前端筛选下拉）
+- 日志分级约定：检查 error → ERROR、失败/超时 → WARN、成功 → INFO、检查器内部明细 → DEBUG；**uvicorn.access 访问日志挂过滤器，仅全局级别为 DEBUG 时写入**（uvicorn 的 access 记录是 INFO 级，setLevel 挡不住，必须用 filter）
+- 自动清理：`app.log_cleanup_mode`（none/delete/upload）+ `log_retention_days`（默认 30），由 `log_cleaner.py` 每 6 小时执行；upload 模式上传 S3 成功后删本地，S3 永久保留；delete 模式单文件删除失败（如被占用）ERROR 日志并保留待下轮，不中断清理
+- 查看/导出：`GET /api/v1/logs`（参数 level=多选逗号分隔、start/end=本地时间 YYYY-MM-DD 或 YYYY-MM-DDTHH:MM:SS、source=来源筛选（文件名如 scheduler.py 或模块名如 app.scheduler，多选逗号分隔、子串匹配、大小写不敏感）、page/page_size，倒序分页，traceback 续行合并）、`GET /api/v1/logs/export`（**流式导出** .log 文本，参数在流开始前预校验，非法时间 422）、`GET /api/v1/logs/sources`（日志中出现过的来源去重枚举，供前端筛选下拉，30s 缓存按 data_dir 分键）
 - **运行时日志消息必须英文**（用户要求），代码注释/docstring 中文不受限；前端配置页有「日志管理」弹窗（级别/来源/时间筛选，弹窗可拖拽调整大小）与「日志等级」设置
 
 ### API 与安全
 
 - POST/PUT/PATCH 强制要求 `Content-Type: application/json`（CSRF 纵深防御，否则返回 415）
-- 认证双方式：会话 Cookie（HttpOnly `session`，浏览器）或 API Token（`Authorization: Bearer <token>`，外部调用；存 secrets.json，重新生成后旧 token 失效）
+- 认证双方式：会话 Cookie（HttpOnly `session`，浏览器）或 API Token（`Authorization: Bearer <token>`，外部调用；存 secrets.json，重新生成后旧 token 失效）；**有效 cookie 会话优先于 Bearer 头**（残留/轮换后的失效 token 不得使有效会话 401）
+- **密钥类数据接口不回读明文**：`GET /settings/api-token` 只返回 `has_token`（明文仅在生成时返回一次，前端生成后临时展示）；`GET /settings/s3` 只返回 `has_credentials`（见「存储约定」）
+- `PUT /settings/s3` 部分更新语义：未提供的字段保留已保存配置（凭据字段留空/为 null = 不修改）
+- 前端请求超时：普通 15s、导出 60s，**覆盖响应体读取阶段**（timer 在 finally 清理，停滞流也会中止）
 - `backend/app/main.py` 的 `_mount_frontend` SPA 静态托管逻辑（发版相关，改动需谨慎）
 - `/api/v1/meta` 的 `version` 字段必须保持 pyproject 原始格式（`x.y.z[.alpha|beta.n]`），测试 `test_meta_public` 断言了该格式
 
 ### 存储约定
 
 - `config.json`：顶层 `version` / `last_updated` / `check_targets` / `webhook` / `app` / `s3` 节，原子写（临时文件 + os.replace），watchdog 热加载
-- `secrets.json`：密钥类数据（jwt_secret、access_code_hash、S3 凭据、api_token），**明文凭据不落 config.json、接口不回读**（GET /settings/s3 只返回 has_credentials）
-- `results.jsonl`：检查记录追加写、超上限整文件重写；存储模式 `app.storage_mode`（local/s3/both，S3 按天对象永久保留、写失败降级本地）；启用 S3（启动或切换存储模式）时本地全部历史按天补传，同步失败的日期保留待下次 append 自动重试（跨天失败不丢数据）
+- `secrets.json`：密钥类数据（jwt_secret、access_code_hash、S3 凭据、api_token），**明文凭据不落 config.json、接口不回读**（GET /settings/s3 只返回 has_credentials、GET /settings/api-token 只返回 has_token）
+- `results.jsonl`：检查记录追加写、超上限整文件重写；存储模式 `app.storage_mode`（local/s3/both，S3 按天对象永久保留、写失败降级本地）；启用 S3（启动或切换存储模式）时本地全部历史按天补传（**后台任务执行，不阻塞启动**），同步失败的日期保留待下次 append 自动重试（跨天失败不丢数据）。S3 同步语义：**在 append 临界区外执行**（慢/故障 S3 不冻结读写接口）、**拉取既有对象失败时跳过该日期绝不覆盖**（防 S3 历史被内存子集覆盖）、单日期失败不中断其余日期

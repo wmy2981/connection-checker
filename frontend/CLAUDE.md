@@ -38,7 +38,10 @@ Vue 3 + TypeScript + Vite 前端，UI 组件库 naive-ui（2.40），图标 @vic
 - **组件必须显式 import**：模板用了 `<n-layout>` / `<n-layout-header>` / `<n-layout-content>` 等但漏 import 时，Vue 渲染成自定义元素、布局错乱且仅 console 报 warning（曾因此布局崩溃）
 - **n-select 的 v-model 初始值禁用 `''`**：空字符串被当作「有选中值」，导致不显示 placeholder 且误显示清除叉号（2026-08 bug：仪表盘目标名称筛选框）。初始/重置用 `null`（多选用 `[]`；clear 事件 emit 的也是 null，参数序列化需防御 `Array.isArray` 检查）
 - **naive-ui 2.40 的 Select 用 `:menu-props` 而不是 `popup-class`**：下拉弹出列表加宽（宽于触发器）通过 `menu-props="{ class: 'wide-popup' }"` + 全局样式 `min-width: 360px`（App.vue）
-- 主题三模式由 `useDark.ts` 管理（`cc-theme-mode` 存 localStorage，默认跟随系统），`ThemeToggle.vue` 下拉切换，所有页面共用
+- **NStatistic 无 `#value` 插槽**：值内容用默认插槽、后缀用 `#suffix`（2026-08 迭代踩坑，vue-tsc 捕获）
+- **DataTable 列排序用 `sorter` 函数属性**（无 `sortable` 布尔属性）；列固定用 `fixed: 'left' | 'right'`（时间列曾固定左置，移动端挤占空间后移除）
+- **NEmpty 的 `description` 是 prop 非插槽**；弹窗卡片窄屏用 `style="width: 600px; max-width: 94vw"`
+- 主题三模式由 `useDark.ts` 管理（`cc-theme-mode` 存 localStorage，默认跟随系统），`ThemeToggle.vue` 下拉切换，所有页面共用；localStorage 访问须 try/catch（隐私模式禁用时降级）
 - 复制文本一律用 `composables/useClipboard.ts` 的 `copyText`（http 内网下 Clipboard API 不可用会自动降级），勿直接用 navigator.clipboard
 - 按钮弹窗等交互组件（NPopconfirm 等）确认按钮改红色用 `positive-button-props="{ type: 'error' }"`
 
@@ -47,3 +50,6 @@ Vue 3 + TypeScript + Vite 前端，UI 组件库 naive-ui（2.40），图标 @vic
 - 新增页面须在 `router/index.ts` 注册并置于登录守卫后
 - 改后端接口/模型时，`types/index.ts` 与 `api/index.ts` 须同步更新
 - 图表用手绘 SVG（TrendChart.vue 模式），不引入图表库
+- **API 令牌明文只在生成后临时展示**：`getApiToken` 返回 `{ has_token }`（后端不回读明文），`apiToken` 状态仅在 `generateApiToken` 后非空；删除按钮以「已设置」状态（`apiTokenSet`）控制
+- 请求超时在 `api/client.ts`（15s）与 `downloadExport`（60s）：timer 在 finally 清理，**必须覆盖响应体读取阶段**（fetch resolve 后不清 timer，否则停滞流挂死界面）
+- 移动端适配基线（≤640px）：目标卡两行布局（主行 + 元数据行可换行）、n-card header 窄屏 `flex-wrap` 标题独占一行、表格不固定列；用 `:deep(.n-card-header__main)` 等覆盖 naive 内部结构
