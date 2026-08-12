@@ -37,10 +37,18 @@ async def test_ping_success(monkeypatch):
 
 
 async def test_ping_extra_jitter_stddev(monkeypatch):
-    samples = iter([0.01, 0.03, 0.01, 0.05])
+    import threading
+
+    samples = [0.01, 0.03, 0.01, 0.05]
+    idx = 0
+    lock = threading.Lock()  # 并发发包下保证取值顺序
 
     def fake_ping(*a, **k):
-        return next(samples)
+        nonlocal idx
+        with lock:
+            v = samples[idx]
+            idx += 1
+            return v
 
     monkeypatch.setattr("ping3.ping", fake_ping)
     outcome = await PingChecker(timeout=1.0, count=4).check(_target("ping"))
@@ -70,11 +78,15 @@ async def test_ping_host_unknown(monkeypatch):
 
 
 async def test_ping_partial_loss(monkeypatch):
+    import threading
+
     calls = {"n": 0}
+    lock = threading.Lock()  # 并发发包下保证计数不丢
 
     def fake_ping(*a, **k):
-        calls["n"] += 1
-        return 0.02 if calls["n"] % 2 == 0 else None
+        with lock:
+            calls["n"] += 1
+            return 0.02 if calls["n"] % 2 == 0 else None
 
     monkeypatch.setattr("ping3.ping", fake_ping)
     outcome = await PingChecker(timeout=1.0, count=4).check(_target("ping"))
