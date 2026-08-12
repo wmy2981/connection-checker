@@ -1,4 +1,7 @@
-# connection-checker
+<p align="center">
+  <img src="frontend/public/favicon.svg" width="80" height="80" alt="connection-checker" />
+</p>
+<h1 align="center">Connection Checker</h1>
 
 自托管网络连通性监控工具。定时对目标执行 **Ping / TCP 端口 / HTTP 状态码** 检查，在 Web 仪表盘实时查看结果，支持按状态、IP、目标、时间筛选与分页，故障连续发生可推送 **Webhook 告警**。
 
