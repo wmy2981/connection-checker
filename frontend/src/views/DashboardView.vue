@@ -150,7 +150,7 @@ const pingStats = computed(() => {
   }
 })
 
-// http 关键指标（最终 URL / 状态码 / TTFB / 响应大小 / TLS 版本）
+// http 关键指标（最终 URL / 状态码 / TTFB / 响应大小 / 重定向数 / TLS 版本）
 const httpMeta = computed(() => {
   const e = detail.value?.extra
   if (detail.value?.check_method !== 'http' || !e) return null
@@ -159,6 +159,7 @@ const httpMeta = computed(() => {
     status: e.http_status as number | undefined,
     ttfb: e.ttfb_ms as number | undefined,
     size: e.response_size as number | undefined,
+    redirects: e.redirects as number | undefined,
     tlsVersion: (e.tls as { version?: string } | undefined)?.version,
   }
 })
@@ -724,6 +725,7 @@ const columns: DataTableColumns<CheckResult> = [
           <template v-if="httpMeta.status != null">状态 {{ httpMeta.status }} · </template>
           <template v-if="httpMeta.ttfb != null">TTFB {{ httpMeta.ttfb }}ms · </template>
           <template v-if="httpMeta.size != null">{{ httpMeta.size }}B · </template>
+          <template v-if="httpMeta.redirects != null">重定向 {{ httpMeta.redirects }} 次 · </template>
           <template v-if="httpMeta.tlsVersion">TLS {{ httpMeta.tlsVersion }}</template>
         </n-descriptions-item>
         <n-descriptions-item v-if="dnsMeta" label="解析结果">
