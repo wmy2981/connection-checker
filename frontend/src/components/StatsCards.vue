@@ -40,10 +40,8 @@ const rateClass = computed(() => {
       </n-statistic>
     </n-card>
     <n-card size="small">
-      <n-statistic label="24h 可用率" :value="uptimeText">
-        <template #value>
-          <span :class="rateClass">{{ uptimeText }}</span>
-        </template>
+      <n-statistic label="24h 可用率">
+        <span :class="rateClass">{{ uptimeText }}</span>
         <template #suffix v-if="uptime != null">
           <span class="sub">全部目标</span>
         </template>
