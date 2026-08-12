@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -29,7 +29,7 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { copyText } from '@/composables/useClipboard'
-import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
+import type { AppSettings, CheckResult, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -452,6 +452,39 @@ async function testS3() {
   }
 }
 
+// --- SSE 实时状态：检查结果到达时局部更新「最近状态」列，节流兜底全量刷新 ---
+let es: EventSource | null = null
+let lastStatsRefresh = 0
+const STATS_REFRESH_THROTTLE = 10_000
+
+function onSseResult(ev: Event) {
+  try {
+    const r = JSON.parse((ev as MessageEvent).data) as CheckResult
+    const cur = targetStatus.value[r.target_id]
+    if (cur) {
+      cur.last_status = r.status
+      cur.last_latency_ms = r.latency_ms
+      cur.last_checked_at = r.checked_at
+      cur.last_message = r.message
+    }
+  } catch {
+    /* 解析失败仅跳过局部更新 */
+  }
+  const now = Date.now()
+  if (now - lastStatsRefresh >= STATS_REFRESH_THROTTLE) {
+    lastStatsRefresh = now
+    void loadStats()
+  }
+}
+
+function connectSse() {
+  es = new EventSource('/api/v1/stream')
+  es.addEventListener('result', onSseResult)
+  es.onerror = () => {
+    /* EventSource 自动重连 */
+  }
+}
+
 onMounted(() => {
   load()
   loadStats()
@@ -459,6 +492,11 @@ onMounted(() => {
   loadWebhook()
   loadS3()
   loadApiToken()
+  connectSse()
+})
+
+onUnmounted(() => {
+  es?.close()
 })
 
 function openCreate() {
