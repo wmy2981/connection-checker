@@ -387,6 +387,7 @@ const columns: DataTableColumns<CheckResult> = [
                 :key="t.target_id"
                 class="target-card"
                 :class="{ disabled: !t.enabled }"
+                :title="t.last_checked_at ? `最近检查：${formatTime(t.last_checked_at)}` : '暂无检查记录'"
                 @click="filterByTarget(t.target_id)"
               >
                 <n-badge
