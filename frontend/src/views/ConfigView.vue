@@ -515,9 +515,6 @@ const columns: DataTableColumns<Target> = [
           </n-space>
           </n-card>
 
-          <div class="api-docs-link">
-            <a href="/docs" target="_blank" rel="noopener noreferrer">查看 API 文档（/docs）</a>
-          </div>
         </n-space>
       </div>
     </n-layout-content>
@@ -619,18 +616,6 @@ const columns: DataTableColumns<Target> = [
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px;
-}
-.api-docs-link {
-  text-align: center;
-  font-size: 13px;
-}
-.api-docs-link a {
-  color: var(--cc-text-3);
-  text-decoration: none;
-  transition: color 0.2s;
-}
-.api-docs-link a:hover {
-  color: #0ca30c;
 }
 @media (max-width: 640px) {
   .header-inner {
