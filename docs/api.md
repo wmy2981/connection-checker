@@ -1,6 +1,6 @@
 # API 参考
 
-基础路径：`/api/v1`。所有响应为 JSON（SSE 流除外）。除登录与 `/auth/me` 外，均需登录会话（HttpOnly Cookie）。
+基础路径：`/api/v1`。所有响应为 JSON（SSE 流除外）。除登录与 `/auth/me` 外，均需认证（见下方两种认证方式）。
 
 > 未设置 `CONNECTCHECKER_ACCESS_CODE` 时为**免认证模式**：所有接口直接放行，`/auth/me` 恒返回 `{"authenticated": true}`，无需登录。
 
@@ -8,8 +8,10 @@
 
 ## 通用约定
 
-- 认证：登录后服务端下发 `session` Cookie（HttpOnly）。客户端不需要手动携带 token。
-- 错误：`{"detail": "错误信息"}`，状态码：`401` 未授权、`404` 资源不存在、`415` 写请求未带 `application/json`、`422` 参数校验失败。
+- 认证：支持两种方式，二选一即可：
+  - **会话 Cookie（浏览器）**：登录后服务端下发 `session` Cookie（HttpOnly），客户端不需要手动携带。
+  - **API Token（外部调用）**：请求头携带 `Authorization: Bearer <token>`。Token 在「API 访问令牌」接口生成（见下文），存于 `secrets.json`；重新生成后旧 Token 立即失效。
+- 错误：`{"detail": "错误信息"}`，状态码：`400` 请求缺失必要信息、`401` 未授权、`404` 资源不存在、`415` 写请求未带 `application/json`、`422` 参数校验失败、`502` 依赖服务不可用。
 - 时间：ISO 8601（如 `2026-08-06T08:00:00+00:00`）。
 
 ## 认证
@@ -52,6 +54,8 @@
     "check_interval": 60,
     "time_ranges": [{ "start": "00:00", "end": "23:59" }],
     "enabled": true,
+    "notify_enabled": true,
+    "ping_count": null,
     "port": null,
     "scheme": "http",
     "url_path": "/",
@@ -75,6 +79,8 @@
 | `check_interval` | int | 否 | 秒，默认 60；`0` = 关闭定时检查（仅手动触发） |
 | `time_ranges` | array | 否 | `[{start, end}]`，默认全天，支持跨午夜 |
 | `enabled` | bool | 否 | 默认 true |
+| `notify_enabled` | bool | 否 | 目标级告警开关，默认 true；关闭后该目标不推送告警与恢复通知 |
+| `ping_count` | int | 否 | 覆盖全局发包数（`ping` 方式） |
 | `port` | int | 条件 | `port` 方式必填；`http` 方式可覆盖默认端口 |
 | `scheme` | string | 否 | `http` / `https`，默认 `http` |
 | `url_path` | string | 否 | `http` 方式路径，默认 `/` |
@@ -103,11 +109,13 @@
 
 | 参数 | 说明 |
 | --- | --- |
-| `status` | `success` / `fail` / `timeout` / `error` / `all` |
-| `ip` | IP 模糊匹配 |
-| `target_id` | 按目标过滤 |
+| `status` | `success` / `fail` / `timeout` / `error` / `all`（逗号分隔多选） |
+| `ip` | IP 模糊匹配（含 `*` / `?` 时按通配符全匹配） |
+| `target_id` | 按目标过滤（逗号分隔多选） |
+| `target_name` | 按目标名称/地址过滤（逗号分隔多选） |
 | `date` | 日期 `YYYY-MM-DD` |
 | `time_start` / `time_end` | 时间段 `HH:MM`（支持跨午夜） |
+| `start_at` / `end_at` | 完整时间范围（本地时间 ISO，如 `2026-08-09T22:00:00`），支持跨日 |
 | `page` | 页码，默认 1 |
 | `page_size` | 每页条数，默认 20，最大 200 |
 
@@ -171,12 +179,40 @@
 返回全局检查参数（存于 `config.json` 的 `app` 节）。
 
 ```json
-{ "result_max_records": 50000, "ping_count": 4, "connect_timeout": 3.0, "http_timeout": 5.0 }
+{
+  "result_max_records": 50000,
+  "ping_count": 4,
+  "connect_timeout": 3.0,
+  "http_timeout": 5.0,
+  "stats_window": 50,
+  "log_level": "INFO",
+  "log_cleanup_mode": "delete",
+  "log_retention_days": 30,
+  "storage_mode": "local",
+  "brand_icon": null
+}
 ```
+
+| 字段 | 说明 |
+| --- | --- |
+| `result_max_records` | 结果保留条数，超出自动裁掉最旧 |
+| `ping_count` | Ping 发包数（全局默认，单个 `ping` 目标可在 `check_targets[].ping_count` 覆盖） |
+| `connect_timeout` | Ping/TCP 超时（秒） |
+| `http_timeout` | HTTP 超时（秒） |
+| `stats_window` | 仪表盘统计的近 N 次检查 |
+| `log_level` | `DEBUG` / `INFO` / `WARN` / `ERROR` |
+| `log_cleanup_mode` | 日志清理：`none` 不清理 / `delete` 删除 n 天前 / `upload` 上传 S3 后删除本地 |
+| `log_retention_days` | 日志保留天数，默认 30 |
+| `storage_mode` | 检查记录存储：`local` 仅本地 / `s3` 仅 S3 / `both` 本地+S3 双写（S3 按天对象永久保留） |
+| `brand_icon` | 品牌图标：base64 data URI 或 http(s) URL，必须为正方形；`null` = 默认图标 |
 
 ### PUT /settings/app
 
-更新配置，请求体同上。成功：`200`，返回更新后的配置。`result_max_records` 修改立即生效，超出部分即时裁剪；`ping_count` 为全局默认，单个 `ping` 目标可在 `check_targets[].ping_count` 覆盖。
+更新配置，请求体同上（全量提交）。成功：`200`，返回更新后的配置。
+
+- `result_max_records` 修改立即生效，超出部分即时裁剪
+- `brand_icon` 服务端校验：支持 PNG/JPEG/GIF/WebP/SVG，必须正方形（URL 会下载校验，超时 10s），非正方形或无法解析：`422`
+- `log_cleanup_mode=upload` 或 `storage_mode=s3/both` 依赖 S3：未完整配置 S3（含凭据）时返回 `422`
 
 ## 告警设置
 
@@ -201,6 +237,70 @@
 ```
 
 成功：`200`，`{ "ok": true, "info": "HTTP 200" }`。地址未填写：`400`；推送失败（连接失败 / 非 2xx）：`502`。
+
+## S3 存储配置
+
+S3 配置存于 `config.json` 的 `s3` 节；凭据（Access ID / Access Key）存于 `secrets.json`，接口不回读明文。用于检查记录存储、日志自动上传（见「全局设置」）。
+
+### GET /settings/s3
+
+返回当前 S3 配置（不含凭据明文）。
+
+```json
+{
+  "enabled": false,
+  "endpoint": "",
+  "bucket": "",
+  "region": null,
+  "datapath": "",
+  "has_credentials": false
+}
+```
+
+`has_credentials` 表示凭据是否已配置；`region` 可选（部分 S3 服务要求）。
+
+### PUT /settings/s3
+
+更新配置。请求体：
+
+| 字段 | 说明 |
+| --- | --- |
+| `enabled` | 是否启用 |
+| `endpoint` | S3 服务地址，如 `https://s3.example.com` 或 `http://minio:9000` |
+| `bucket` | 存储桶名称 |
+| `region` | 可选，部分服务要求 |
+| `datapath` | 数据在 bucket 中的路径前缀 |
+| `access_id` / `access_key` | 可选；不传/留空 = 不修改已保存的凭据；传空字符串 = 清除 |
+
+启用时 `endpoint` / `bucket` / `datapath` 必填，否则：`422`。成功：`200`，返回与 GET 相同的结构（不含凭据）。
+
+### POST /settings/s3/test
+
+测试 S3 连接（验证凭据与网络连通性，检查 bucket 是否存在）。请求体可选，字段同 PUT（不传或空对象 = 用已保存配置；凭据留空自动回退已保存值）。
+
+成功：`200`，`{ "ok": true, "info": "连接成功，bucket「xx」存在" }`（bucket 不存在时 info 提示需在服务端创建）。未填写 endpoint/bucket 或凭据：`400`；连接失败（网络 / 凭据错误）：`502`。
+
+## API 访问令牌
+
+供外部程序调用 API 使用（认证方式见「通用约定」）。Token 存于 `secrets.json`，单 Token 制：重新生成后旧 Token 立即失效。
+
+### GET /settings/api-token
+
+返回当前 Token 明文（供配置页展示/复制）。未设置：`{ "token": null }`。
+
+### POST /settings/api-token/generate
+
+生成新 Token，旧 Token 立即失效。成功：`200`，`{ "token": "..." }`。
+
+### DELETE /settings/api-token
+
+删除 Token，外部 API 调用立即禁用。成功：`200`，`{ "ok": true }`。
+
+调用示例：
+
+```bash
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/targets
+```
 
 ## 统计概览
 
