@@ -277,7 +277,12 @@ function runAll() {
     })
 }
 
+// 正在手动检查的目标集合，防止重复点击触发多次检查
+const runningIds = ref<Set<string>>(new Set())
+
 async function runOne(targetId: string) {
+  if (runningIds.value.has(targetId)) return
+  runningIds.value.add(targetId)
   try {
     const r = await api.runChecks(targetId)
     const status = r[0]?.status ?? 'success'
@@ -289,6 +294,8 @@ async function runOne(targetId: string) {
     refresh()
   } catch (e) {
     message.error(errText(e))
+  } finally {
+    runningIds.value.delete(targetId)
   }
 }
 
@@ -474,6 +481,7 @@ const columns: DataTableColumns<CheckResult> = [
                   size="tiny"
                   type="primary"
                   secondary
+                  :loading="runningIds.has(t.target_id)"
                   @click.stop="runOne(t.target_id)"
                 >
                   检查

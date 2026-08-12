@@ -554,7 +554,12 @@ const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'defau
   error: { type: 'default', label: '错误' },
 }
 
+// 正在手动检查的目标集合，防止重复点击触发多次检查
+const runningIds = ref<Set<string>>(new Set())
+
 async function runOne(t: Target) {
+  if (runningIds.value.has(t.id)) return
+  runningIds.value.add(t.id)
   try {
     const r = await api.runChecks(t.id)
     const status = r[0]?.status
@@ -565,6 +570,8 @@ async function runOne(t: Target) {
     await loadStats()
   } catch (e) {
     message.error(errText(e))
+  } finally {
+    runningIds.value.delete(t.id)
   }
 }
 
@@ -627,7 +634,13 @@ const columns: DataTableColumns<Target> = [
         t.enabled
           ? h(
               NButton,
-              { size: 'tiny', secondary: true, type: 'primary', onClick: () => runOne(t) },
+              {
+                size: 'tiny',
+                secondary: true,
+                type: 'primary',
+                loading: runningIds.value.has(t.id),
+                onClick: () => runOne(t),
+              },
               { default: () => '检查' },
             )
           : null,
