@@ -122,6 +122,34 @@ const certDays = computed(() => {
   return tls?.days_remaining != null ? tls.days_remaining : null
 })
 
+// ping 关键指标（丢包率 / min-max / 抖动 / 标准差），详情弹窗友好展示
+const pingStats = computed(() => {
+  const e = detail.value?.extra
+  if (detail.value?.check_method !== 'ping' || !e) return null
+  const loss = e.packet_loss_pct as number | undefined
+  if (loss == null) return null
+  return {
+    loss,
+    min: e.min_ms as number | undefined,
+    max: e.max_ms as number | undefined,
+    jitter: e.jitter_ms as number | undefined,
+    stddev: e.stddev_ms as number | undefined,
+  }
+})
+
+// http 关键指标（最终 URL / 状态码 / TTFB / 响应大小 / TLS 版本）
+const httpMeta = computed(() => {
+  const e = detail.value?.extra
+  if (detail.value?.check_method !== 'http' || !e) return null
+  return {
+    finalUrl: e.final_url as string | undefined,
+    status: e.http_status as number | undefined,
+    ttfb: e.ttfb_ms as number | undefined,
+    size: e.response_size as number | undefined,
+    tlsVersion: (e.tls as { version?: string } | undefined)?.version,
+  }
+})
+
 function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
@@ -574,6 +602,21 @@ const columns: DataTableColumns<CheckResult> = [
           </n-tag>
         </n-descriptions-item>
         <n-descriptions-item label="延迟">{{ detail.latency_ms != null ? `${detail.latency_ms}ms` : '-' }}</n-descriptions-item>
+        <n-descriptions-item v-if="pingStats" label="Ping 统计">
+          丢包 {{ pingStats.loss }}%
+          <template v-if="pingStats.min != null && pingStats.max != null">
+            · 延迟 {{ pingStats.min }}~{{ pingStats.max }}ms
+          </template>
+          <template v-if="pingStats.jitter"> · 抖动 {{ pingStats.jitter }}ms</template>
+          <template v-if="pingStats.stddev"> · 标准差 {{ pingStats.stddev }}ms</template>
+        </n-descriptions-item>
+        <n-descriptions-item v-if="httpMeta" label="HTTP 详情">
+          <template v-if="httpMeta.finalUrl">{{ httpMeta.finalUrl }} · </template>
+          <template v-if="httpMeta.status != null">状态 {{ httpMeta.status }} · </template>
+          <template v-if="httpMeta.ttfb != null">TTFB {{ httpMeta.ttfb }}ms · </template>
+          <template v-if="httpMeta.size != null">{{ httpMeta.size }}B · </template>
+          <template v-if="httpMeta.tlsVersion">TLS {{ httpMeta.tlsVersion }}</template>
+        </n-descriptions-item>
         <n-descriptions-item v-if="certDays != null" label="证书剩余">
           <n-tag
             size="small"
