@@ -389,3 +389,50 @@ es.addEventListener('result', (e) => {
 ```
 
 连接空闲时每 15 秒发送一次心跳注释行保持存活。
+
+## 日志查看与导出
+
+日志按天写入 `data/logs/app-YYYY-MM-DD.log`，行格式：
+`时间 | 级别 | logger名 | 文件:行号 | 消息`（旧版无来源段的行解析时兼容）。
+
+### GET /logs
+
+分页查看日志（倒序，最新在前）。查询参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `level` | 级别筛选，逗号分隔多值（`DEBUG,WARN`），精确匹配 |
+| `start` \ `end` | 本地时间 `YYYY-MM-DD` 或 `YYYY-MM-DDTHH:MM:SS` |
+| `source` | 来源筛选，逗号分隔多值（OR）：文件名（如 `scheduler.py`）或模块名，子串匹配、大小写不敏感 |
+| `page` | 页码，默认 1 |
+| `page_size` | 每页条数，默认 100，最大 500 |
+
+```json
+{
+  "results": [
+    {
+      "time": "2026-08-12 10:30:36,123",
+      "level": "INFO",
+      "name": "app.scheduler",
+      "source": "scheduler.py:72",
+      "message": "Scheduled target 公网 (ab12cd34ef56)"
+    }
+  ],
+  "total": 1234,
+  "page": 1,
+  "page_size": 100,
+  "pages": 13
+}
+```
+
+### GET /logs/export
+
+导出筛选后的日志为 `.log` 文本（参数同列表接口，含文件头 `Content-Disposition`）。
+
+### GET /logs/sources
+
+日志中出现过的来源枚举（文件名或模块名，去重排序），供筛选下拉使用；结果缓存 30 秒。
+
+```json
+{ "sources": ["scheduler.py", "storage.py", "app.notifier", "uvicorn"] }
+```
