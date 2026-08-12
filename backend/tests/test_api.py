@@ -532,3 +532,15 @@ def test_s3_settings_crud(logged_client: TestClient):
     )
     assert resp.status_code == 200
     assert resp.json()["has_credentials"] is False
+
+
+def test_check_error_logs_error_level(logged_client, fake_checker, no_scheduler, caplog):
+    """检查返回 error 时记录 ERROR 级日志（需求：报错便于及时排查）。"""
+    import logging
+
+    fake_checker(status="error", message="权限不足")
+    logged_client.post("/api/v1/targets", json=_payload())
+    with caplog.at_level(logging.ERROR):
+        resp = logged_client.post("/api/v1/checks/run", json={})
+    assert resp.status_code == 200
+    assert any("Check error" in r.message for r in caplog.records)

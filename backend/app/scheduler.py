@@ -124,15 +124,26 @@ class Scheduler:
         )
         await self.result_store.append(result)
         await self.notifier.observe(result)
-        logger.info(
-            "Check finished %s (%s) [%s] status=%s latency=%sms msg=%s",
-            target.name or target.ip,
-            target.id,
-            target.check_method,
-            result.status,
-            result.latency_ms,
-            result.message,
-        )
+        if result.status == "error":
+            logger.error(
+                "Check error %s (%s) [%s] status=%s latency=%sms msg=%s",
+                target.name or target.ip,
+                target.id,
+                target.check_method,
+                result.status,
+                result.latency_ms,
+                result.message,
+            )
+        else:
+            logger.info(
+                "Check finished %s (%s) [%s] status=%s latency=%sms msg=%s",
+                target.name or target.ip,
+                target.id,
+                target.check_method,
+                result.status,
+                result.latency_ms,
+                result.message,
+            )
         return result
 
     async def manual_run(self, target_id: str | None = None) -> list[CheckResult]:
