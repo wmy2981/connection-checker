@@ -139,10 +139,10 @@ watch(showLogs, async (v) => {
     }
     return
   }
-  // 弹窗打开期间每 15s 自动刷新，持续追踪最新日志（保持当前筛选与页码）
+  // 弹窗打开期间每 15s 静默刷新，持续追踪最新日志（保持当前筛选与页码）
   if (logPollTimer == null) {
     logPollTimer = window.setInterval(() => {
-      if (showLogs.value) void fetchLogs()
+      if (showLogs.value) void fetchLogs(true)
     }, LOG_POLL_INTERVAL)
   }
   await nextTick()
@@ -221,8 +221,9 @@ async function loadLogSources() {
   }
 }
 
-async function fetchLogs() {
-  logLoading.value = true
+async function fetchLogs(silent = false) {
+  // 后台轮询（silent）不触发 loading，避免表格每 15s 闪烁
+  if (!silent) logLoading.value = true
   try {
     logData.value = await api.queryLogs({
       level: multi(logLevel.value),
@@ -235,7 +236,7 @@ async function fetchLogs() {
   } catch (e) {
     message.error(errText(e))
   } finally {
-    logLoading.value = false
+    if (!silent) logLoading.value = false
   }
 }
 
@@ -992,7 +993,7 @@ const columns: DataTableColumns<Target> = [
         />
         <n-date-picker v-model:value="logStart" type="datetime" clearable style="width: 190px" placeholder="起始时间" />
         <n-date-picker v-model:value="logEnd" type="datetime" clearable style="width: 190px" placeholder="结束时间" />
-        <n-button size="small" type="primary" :loading="logLoading" @click="fetchLogs">查询</n-button>
+        <n-button size="small" type="primary" :loading="logLoading" @click="() => fetchLogs()">查询</n-button>
         <n-button size="small" quaternary @click="resetLogFilters">重置</n-button>
         <n-button size="small" :loading="logExporting" @click="exportLogs">导出</n-button>
       </n-space>
@@ -1009,7 +1010,7 @@ const columns: DataTableColumns<Target> = [
           v-model:page="logPage"
           :page-count="logData.pages || 1"
           :page-size="logData.page_size"
-          @update:page="fetchLogs"
+          @update:page="() => fetchLogs()"
         />
       </n-space>
     </n-space>
