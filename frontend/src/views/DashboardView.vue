@@ -376,6 +376,8 @@ let es: EventSource | null = null
 let lastFullRefresh = 0
 // 全量刷新节流窗口（毫秒）：目标卡即时局部更新，统计/趋势/表格最多每窗口刷新一次
 const SSE_REFRESH_THROTTLE = 10_000
+// 实时连接状态：断开时提示数据可能非实时（EventSource 会自动重连）
+const sseOnline = ref(true)
 
 function onSseResult(ev: Event) {
   // 目标卡即时局部更新：避免每次事件都全量拉 3 个接口
@@ -403,8 +405,12 @@ function onSseResult(ev: Event) {
 function connectSse() {
   es = new EventSource('/api/v1/stream')
   es.addEventListener('result', onSseResult)
+  es.onopen = () => {
+    sseOnline.value = true
+  }
   es.onerror = () => {
-    /* EventSource 自动重连 */
+    /* EventSource 自动重连；重连期间标记为非实时 */
+    sseOnline.value = false
   }
 }
 
@@ -517,6 +523,11 @@ const columns: DataTableColumns<CheckResult> = [
           <StatsCards :stats="stats" />
 
           <n-card title="目标状态" size="small">
+            <template #header-extra>
+              <span class="sse-status" :class="sseOnline ? 'sse-on' : 'sse-off'">
+                <span class="sse-dot"></span>{{ sseOnline ? '实时' : '连接中…' }}
+              </span>
+            </template>
             <div v-if="stats && stats.target_status.length" class="targets-grid">
               <div
                 v-for="t in sortedTargets"
@@ -850,6 +861,25 @@ const columns: DataTableColumns<CheckResult> = [
 }
 .up-bad {
   color: #d03b3b;
+}
+.sse-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--cc-text-3);
+}
+.sse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.sse-on .sse-dot {
+  background: #0ca30c;
+}
+.sse-off .sse-dot {
+  background: #fab219;
 }
 .table {
   margin-top: 14px;
