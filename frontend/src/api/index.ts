@@ -116,7 +116,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(cfg),
     }),
-  getApiToken: () => request<{ token: string | null }>('/settings/api-token'),
+  getApiToken: () => request<{ has_token: boolean }>('/settings/api-token'),
   generateApiToken: () =>
     request<{ token: string }>('/settings/api-token/generate', {
       method: 'POST',

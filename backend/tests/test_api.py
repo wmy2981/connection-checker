@@ -743,7 +743,7 @@ def test_api_token_flow(logged_client: TestClient, settings):
 
     Bearer 失效语义用无 cookie 的独立客户端验证（带 cookie 的会话由 cookie 认证）。
     """
-    assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
+    assert logged_client.get("/api/v1/settings/api-token").json()["has_token"] is False
 
     token = _generate_token(logged_client)
     assert token
@@ -766,7 +766,7 @@ def test_api_token_flow(logged_client: TestClient, settings):
         assert bare.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 200
 
     assert logged_client.delete("/api/v1/settings/api-token").status_code == 200
-    assert logged_client.get("/api/v1/settings/api-token").json()["token"] is None
+    assert logged_client.get("/api/v1/settings/api-token").json()["has_token"] is False
     with _bare_client(settings) as bare:
         assert bare.get("/api/v1/targets", headers=_bearer(new_token)).status_code == 401
 

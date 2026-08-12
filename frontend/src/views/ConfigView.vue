@@ -431,9 +431,12 @@ async function loadS3() {
   }
 }
 
+// 令牌是否已设置（后端不回读明文；明文只在生成后临时展示）
+const apiTokenSet = ref(false)
+
 async function loadApiToken() {
   try {
-    apiToken.value = (await api.getApiToken()).token
+    apiTokenSet.value = (await api.getApiToken()).has_token
   } catch {
     /* 401 由 client 处理 */
   }
@@ -442,6 +445,7 @@ async function loadApiToken() {
 async function regenerateToken() {
   try {
     apiToken.value = (await api.generateApiToken()).token
+    apiTokenSet.value = true
     message.success('已生成新令牌，旧令牌立即失效')
   } catch (e) {
     message.error(errText(e))
@@ -452,6 +456,7 @@ async function removeToken() {
   try {
     await api.deleteApiToken()
     apiToken.value = null
+    apiTokenSet.value = false
     message.success('已删除 API 令牌')
   } catch (e) {
     message.error(errText(e))
@@ -994,9 +999,10 @@ const columns: DataTableColumns<Target> = [
             <n-space align="center" :size="12" wrap>
               <span class="label">令牌</span>
               <n-input v-if="apiToken" :value="apiToken" readonly style="width: 340px" />
+              <span v-else-if="apiTokenSet" class="hint">令牌已设置（出于安全不再明文显示；需复制请重新生成）</span>
               <span v-else class="hint">未设置 API 令牌，外部 API 调用将被拒绝</span>
               <n-button v-if="apiToken" size="small" @click="copyToken">复制</n-button>
-              <n-popconfirm v-if="apiToken" :positive-button-props="{ type: 'error' }" @positive-click="removeToken">
+              <n-popconfirm v-if="apiTokenSet" :positive-button-props="{ type: 'error' }" @positive-click="removeToken">
                 <template #trigger>
                   <n-button size="small" type="error" secondary>删除</n-button>
                 </template>

@@ -146,9 +146,9 @@ async def update_s3_settings(
 
 @router.get("/api-token")
 async def get_api_token(request: Request) -> dict:
-    """返回当前 API Token 明文（供配置页展示复制）；未设置返回 null。"""
+    """返回 API 令牌是否已设置（不回读明文：密钥类数据接口不回读，防 XSS 窃取）。"""
     secrets_store: SecretsStore = request.app.state.secrets_store
-    return {"token": secrets_store.api_token or None}
+    return {"has_token": bool(secrets_store.api_token)}
 
 
 @router.post("/api-token/generate")
