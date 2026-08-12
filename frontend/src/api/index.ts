@@ -27,13 +27,28 @@ function buildQuery(params: ResultFilterParams): string {
   return s ? `?${s}` : ''
 }
 
+// 导出下载超时（毫秒）：大结果集 blob 下载比普通请求宽松
+const EXPORT_TIMEOUT_MS = 60_000
+
 async function downloadExport(
   path: string,
   params: ResultFilterParams,
   fallbackName = 'export.txt',
 ): Promise<void> {
   const query = buildQuery(params)
-  const res = await fetch(`${path}${query}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(`${path}${query}`, { signal: controller.signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new ApiError(408, '导出超时，请缩小筛选范围后重试')
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
   if (res.status === 401) {
     window.location.href = '/login'
     return
