@@ -15,6 +15,8 @@ class Notifier:
         self.config_store = config_store
         self._fails: dict[str, int] = {}
         self._alerted: set[str] = set()
+        # 告警触发时的连续失败次数，恢复通知里告知故障规模
+        self._last_fail_count: dict[str, int] = {}
 
     async def observe(self, result: CheckResult) -> None:
         """根据一条新检查结果更新失败计数并在跨越阈值时发送通知。"""
@@ -34,11 +36,16 @@ class Notifier:
             )
             if was_alerted:
                 self._alerted.discard(tid)
-                logger.info(
-                    "Target %s recovered, sending recovery notification",
-                    result.target_name or result.ip,
+                fails = self._last_fail_count.pop(tid, 0)
+                summary = (
+                    f"连续失败 {fails} 次后已恢复正常" if fails else "连接已恢复正常"
                 )
-                await self._send("恢复", "连接已恢复正常", result, cfg.url)
+                logger.info(
+                    "Target %s recovered after %d consecutive fails, sending recovery notification",
+                    result.target_name or result.ip,
+                    fails,
+                )
+                await self._send("恢复", summary, result, cfg.url)
             return
 
         n = self._fails.get(tid, 0) + 1
@@ -51,6 +58,7 @@ class Notifier:
         )
         if n == cfg.fail_threshold:
             self._alerted.add(tid)
+            self._last_fail_count[tid] = n
             logger.warning(
                 "Target %s failed %d times in a row, sending alert",
                 result.target_name or result.ip,

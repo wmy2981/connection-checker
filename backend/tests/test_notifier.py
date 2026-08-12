@@ -34,9 +34,9 @@ async def test_notifier_alert_on_threshold_and_recover(tmp_path, monkeypatch):
     # 已达阈值的后续失败不再重复告警
     await notifier.observe(_result("t1", "fail"))
     assert len(sent) == 1
-    # 成功后发恢复通知
+    # 成功后发恢复通知，附带故障期间的连续失败次数
     await notifier.observe(_result("t1", "success"))
-    assert sent[-1][0] == "恢复"
+    assert sent[-1] == ("恢复", "连续失败 2 次后已恢复正常")
 
 
 async def test_notifier_disabled_or_no_url(tmp_path, monkeypatch):
