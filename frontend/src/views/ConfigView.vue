@@ -389,7 +389,7 @@ const columns: DataTableColumns<Target> = [
         ),
         h(
           NPopconfirm,
-          { onPositiveClick: () => remove(t.id) },
+          { onPositiveClick: () => remove(t.id), positiveButtonProps: { type: 'error' } },
           {
             trigger: () =>
               h(NButton, { size: 'tiny', type: 'error', secondary: true }, { default: () => '删除' }),
