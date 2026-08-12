@@ -45,14 +45,31 @@ def _normalize_ts(value: str) -> datetime:
         return datetime.strptime(text, "%Y-%m-%d")
 
 
-def _entries(request: Request):
+def _entries(
+    request: Request, start_dt: datetime | None = None, end_dt: datetime | None = None
+):
     """按时间正序产出日志条目；续行并入上一条的 message。
 
+    start_dt / end_dt 按文件名日期跳过范围外的日志文件（天级粗过滤，
+    行级过滤仍精确），避免每次查询都解析全部历史文件。
     source 为产生日志的「文件名:行号」（如 scheduler.py:72）；旧格式行无来源
     信息时为 None（保留 name 供按模块筛选）。
     """
     last: dict | None = None
     for f in sorted(_log_dir(request).glob("app-*.log")):
+        try:
+            fdate = datetime.strptime(f.stem.removeprefix("app-"), "%Y-%m-%d")
+        except ValueError:
+            fdate = None
+        if fdate is not None:
+            if start_dt is not None and fdate < start_dt.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ):
+                continue
+            if end_dt is not None and fdate > end_dt.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ):
+                continue
         try:
             fh = f.open(encoding="utf-8")
         except OSError:
@@ -110,7 +127,7 @@ def _filtered(
     srcs = [s.strip().lower() for s in source.split(",") if s.strip()] if source else None
     start_dt = _normalize_ts(start) if start else None
     end_dt = _normalize_ts(end) if end else None
-    for entry in _entries(request):
+    for entry in _entries(request, start_dt, end_dt):
         if levels and _norm_level(entry["level"].upper()) not in levels:
             continue
         if srcs:
