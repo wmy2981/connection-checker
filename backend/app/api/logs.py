@@ -209,6 +209,15 @@ async def export_logs(
     end: str | None = Query(default=None, description="结束时间，格式同列表接口"),
     source: str | None = Query(default=None, description="来源筛选，逗号分隔多值，格式同列表接口"),
 ) -> StreamingResponse:
+    # 参数校验必须在流开始前完成：流式响应一旦开始就返回不了 422
+    try:
+        if start:
+            _normalize_ts(start)
+        if end:
+            _normalize_ts(end)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"无效的时间格式: {e}") from None
+
     def _gen():
         for entry in _filtered(request, level, start, end, source):
             # 新格式含来源段；旧格式行无来源信息时按旧格式导出
