@@ -58,6 +58,16 @@ class TargetBase(BaseModel):
     def _strip_ip(cls, v: str) -> str:
         return v.strip()
 
+    @field_validator("http_success_codes")
+    @classmethod
+    def _validate_http_codes(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        for code in v:
+            if not 100 <= code <= 599:
+                raise ValueError(f"状态码 {code} 不在 100-599 范围内")
+        return v
+
 
 class TargetCreate(TargetBase):
     pass
@@ -77,6 +87,16 @@ class TargetUpdate(BaseModel):
     url_path: str | None = Field(default=None, max_length=500)
     http_success_codes: list[int] | None = None
     timeout: float | None = Field(default=None, gt=0)
+
+    @field_validator("http_success_codes")
+    @classmethod
+    def _validate_http_codes(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        for code in v:
+            if not 100 <= code <= 599:
+                raise ValueError(f"状态码 {code} 不在 100-599 范围内")
+        return v
 
 
 class Target(TargetBase):

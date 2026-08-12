@@ -96,6 +96,24 @@ def test_create_target_validation(logged_client: TestClient):
     assert resp.status_code == 422
 
 
+def test_http_success_codes_range_validation(logged_client: TestClient):
+    """期望状态码必须落在 100-599：创建与更新均被 422 拒绝。"""
+    bad = {"ip": "1.1.1.1", "check_method": "http", "http_success_codes": [200, 999]}
+    assert logged_client.post("/api/v1/targets", json=bad).status_code == 422
+
+    ok = logged_client.post(
+        "/api/v1/targets", json={"ip": "1.1.1.1", "check_method": "http"}
+    )
+    assert ok.status_code == 201
+    tid = ok.json()["id"]
+    assert (
+        logged_client.put(
+            f"/api/v1/targets/{tid}", json={"http_success_codes": [99]}
+        ).status_code
+        == 422
+    )
+
+
 def test_csrf_content_type_check(logged_client: TestClient):
     body = '{"ip":"1.1.1.1","check_method":"ping"}'
     resp = logged_client.post(
