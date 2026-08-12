@@ -154,6 +154,34 @@ def test_logs_sources_endpoint(logged_client, no_scheduler):
     assert sources == sorted(sources)  # 去重且有序
 
 
+def test_log_sources_cache_keyed_by_data_dir(tmp_path):
+    """来源 TTL 缓存按数据目录分键：不同实例互不串扰（回归：全局单键会污染）。"""
+    from fastapi.testclient import TestClient
+
+    from app.api import logs as logs_api
+    from app.config import Settings
+    from app.main import create_app
+
+    def _client(dirpath):
+        s = Settings(
+            _env_file=None,
+            data_dir=dirpath,
+            access_code="cache-test",
+            jwt_secret="x" * 40,
+        )
+        with TestClient(create_app(s)) as c:
+            c.post("/api/v1/auth/login", json={"access_code": "cache-test"})
+            return c
+
+    c1 = _client(tmp_path / "d1")
+    c2 = _client(tmp_path / "d2")
+    assert c1.get("/api/v1/logs/sources").status_code == 200
+    assert c2.get("/api/v1/logs/sources").status_code == 200
+    # 两个新实例各自独立缓存键（不受前序测试已填充键的影响）
+    keys = set(logs_api._source_cache)
+    assert {str(tmp_path / "d1" / "logs"), str(tmp_path / "d2" / "logs")} <= keys
+
+
 def test_app_settings_log_level_validation():
     assert AppSettings().log_level == "INFO"
     assert AppSettings(log_level="DEBUG").log_level == "DEBUG"
