@@ -596,6 +596,10 @@ def test_s3_settings_crud(logged_client: TestClient):
     assert data["has_credentials"] is False
     assert "access_id" not in data and "access_key" not in data  # 密钥明文永不回读
 
+    # 启用 S3 但缺必填字段 → 422（默认配置下 endpoint 为空）
+    resp = logged_client.put("/api/v1/settings/s3", json={"enabled": True, "bucket": "x"})
+    assert resp.status_code == 422
+
     payload = {
         "enabled": True,
         "endpoint": "https://s3.example.com",
@@ -636,9 +640,18 @@ def test_s3_settings_crud(logged_client: TestClient):
     secrets_raw = json.loads((data_dir / "secrets.json").read_text(encoding="utf-8"))
     assert secrets_raw["s3_access_key"] == "minioadmin123"
 
-    # 启用 S3 但缺必填字段 → 422
-    resp = logged_client.put("/api/v1/settings/s3", json={"enabled": True, "bucket": "x"})
-    assert resp.status_code == 422
+    # 只携带凭据的部分负载：其余字段保持已保存值，不重置为默认
+    resp = logged_client.put(
+        "/api/v1/settings/s3", json={"access_id": "new-id", "access_key": "new-key"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True  # 未传字段保留
+    assert data["endpoint"] == "https://s3.example.com"
+    assert data["datapath"] == "cc/"
+    assert data["has_credentials"] is True
+    secrets_raw = json.loads((data_dir / "secrets.json").read_text(encoding="utf-8"))
+    assert secrets_raw["s3_access_id"] == "new-id"
 
     # 可以清除凭据（显式传空字符串）
     resp = logged_client.put(

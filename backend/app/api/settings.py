@@ -133,7 +133,10 @@ async def update_s3_settings(
 ) -> S3ConfigResponse:
     store = _get_config_store(request)
     secrets: SecretsStore = request.app.state.secrets_store
-    cfg = S3Config.model_validate(payload.model_dump(exclude={"access_id", "access_key"}))
+    # 未提供的字段（exclude_unset）保留已保存配置：部分负载只改携带的字段
+    saved = await store.get_s3_config()
+    updates = payload.model_dump(exclude_unset=True, exclude={"access_id", "access_key"})
+    cfg = S3Config.model_validate({**saved.model_dump(), **updates})
     if cfg.enabled and not (cfg.endpoint and cfg.bucket and cfg.datapath):
         raise HTTPException(status_code=422, detail="启用 S3 时 endpoint、bucket、数据路径必填")
     await store.update_s3_config(cfg)
