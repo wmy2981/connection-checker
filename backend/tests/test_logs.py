@@ -159,3 +159,16 @@ def test_app_settings_log_level_validation():
     assert AppSettings(log_level="DEBUG").log_level == "DEBUG"
     with pytest.raises(ValidationError):
         AppSettings(log_level="bogus")
+
+
+def test_uvicorn_access_level_pinned_to_debug(tmp_path):
+    """HTTP 访问日志固定 DEBUG 级，热更新不改变该固定行为。"""
+    from app.logging_setup import configure
+
+    configure(tmp_path, "INFO")
+    assert logging.getLogger("uvicorn").getEffectiveLevel() == logging.INFO
+    assert logging.getLogger("uvicorn.access").getEffectiveLevel() == logging.DEBUG
+
+    apply_level("ERROR")
+    assert logging.getLogger("uvicorn").getEffectiveLevel() == logging.ERROR
+    assert logging.getLogger("uvicorn.access").getEffectiveLevel() == logging.DEBUG

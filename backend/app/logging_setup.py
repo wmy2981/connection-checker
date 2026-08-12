@@ -81,16 +81,22 @@ def configure(log_dir: Path, level: str = "INFO") -> None:
     root.addHandler(console)
     root.addHandler(DailyFileHandler(log_dir))
     # uvicorn 自带 handler 只输出控制台且格式简单；统一交给根 logger（进文件）
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error"):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
         lg.setLevel(lvl)
+    # HTTP 访问日志（每次请求一行）过于详细，固定 DEBUG 级：默认级别下不刷屏
+    access = logging.getLogger("uvicorn.access")
+    access.handlers.clear()
+    access.propagate = True
+    access.setLevel(logging.DEBUG)
 
 
 def apply_level(level: str) -> None:
     """热更新日志级别（config.json 的 app.log_level 变更后调用）。"""
     lvl = parse_level(level)
     logging.getLogger().setLevel(lvl)
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error"):
         logging.getLogger(name).setLevel(lvl)
+    logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)
