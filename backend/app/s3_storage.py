@@ -39,6 +39,10 @@ class S3Storage:
         """上传本地文件到 bucket 的指定对象；bucket 不存在/凭据错误/网络失败抛异常。"""
         self._client.fput_object(self.bucket, object_name, str(file_path))
 
+    def bucket_exists(self) -> bool:
+        """检查 bucket 是否存在（同时验证凭据与网络连通性）。"""
+        return self._client.bucket_exists(self.bucket)
+
     def put_data(self, object_name: str, data: bytes) -> None:
         """写入字节数据到指定对象（覆盖）。"""
         self._client.put_object(

@@ -663,3 +663,95 @@ def test_brand_icon_validation(logged_client: TestClient):
     resp = logged_client.put("/api/v1/settings/app", json=cfg)
     assert resp.status_code == 200
     assert resp.json()["brand_icon"] is None
+
+
+def test_s3_dependent_settings_rejected_without_s3(logged_client: TestClient):
+    """依赖 S3 的全局设置（日志保留=upload / 记录存储=both/s3）在 S3 未配置时被 422 拒绝。"""
+    cfg = logged_client.get("/api/v1/settings/app").json()
+
+    cfg["log_cleanup_mode"] = "upload"
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 422
+    assert "S3" in resp.json()["detail"]
+
+    cfg["log_cleanup_mode"] = "delete"
+    cfg["storage_mode"] = "both"
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 422
+
+    # 配置好 S3 后允许保存
+    logged_client.put(
+        "/api/v1/settings/s3",
+        json={
+            "enabled": True,
+            "endpoint": "http://s3.local:9000",
+            "bucket": "cc",
+            "datapath": "data/",
+            "access_id": "minioadmin",
+            "access_key": "minioadmin123",
+        },
+    )
+    cfg["storage_mode"] = "s3"
+    assert logged_client.put("/api/v1/settings/app", json=cfg).status_code == 200
+
+    # 只配置了配置项但缺凭据 → 仍拒绝（显式清空凭据）
+    cfg["storage_mode"] = "local"
+    logged_client.put("/api/v1/settings/app", json=cfg)
+    logged_client.put(
+        "/api/v1/settings/s3",
+        json={
+            "enabled": True,
+            "endpoint": "http://s3.local:9000",
+            "bucket": "cc",
+            "datapath": "data/",
+            "access_id": "",
+            "access_key": "",
+        },
+    )
+    cfg["log_cleanup_mode"] = "upload"
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 422
+
+
+def test_s3_test_endpoint(logged_client: TestClient, monkeypatch):
+    """S3 测试连接：缺配置 400、成功 ok、bucket 不存在提示、连接失败 502。"""
+    resp = logged_client.post("/api/v1/settings/s3/test", json={})
+    assert resp.status_code == 400
+
+    logged_client.put(
+        "/api/v1/settings/s3",
+        json={
+            "enabled": True,
+            "endpoint": "http://s3.local:9000",
+            "bucket": "cc",
+            "datapath": "data/",
+            "access_id": "minioadmin",
+            "access_key": "minioadmin123",
+        },
+    )
+
+    monkeypatch.setattr("app.s3_storage.S3Storage.bucket_exists", lambda self: True)
+    resp = logged_client.post("/api/v1/settings/s3/test", json={})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert "存在" in resp.json()["info"]
+
+    monkeypatch.setattr("app.s3_storage.S3Storage.bucket_exists", lambda self: False)
+    resp = logged_client.post("/api/v1/settings/s3/test", json={})
+    assert resp.json()["ok"] is True
+    assert "不存在" in resp.json()["info"]
+
+    def boom(self):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr("app.s3_storage.S3Storage.bucket_exists", boom)
+    resp = logged_client.post("/api/v1/settings/s3/test", json={})
+    assert resp.status_code == 502
+
+    # 携带表单配置（未保存）测试；凭据留空回退已保存
+    monkeypatch.setattr("app.s3_storage.S3Storage.bucket_exists", lambda self: True)
+    resp = logged_client.post(
+        "/api/v1/settings/s3/test",
+        json={"endpoint": "http://other:9000", "bucket": "other-bucket"},
+    )
+    assert resp.status_code == 200

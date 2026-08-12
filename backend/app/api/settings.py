@@ -10,6 +10,7 @@ from app.auth import require_auth
 from app.icon_validate import validate_icon
 from app.models import AppSettings, S3Config, WebhookConfig
 from app.notifier import Notifier
+from app.s3_storage import S3Storage
 from app.storage import ConfigStore, SecretsStore
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,23 @@ async def update_app_settings(request: Request, payload: AppSettings) -> AppSett
         except ValueError as e:
             logger.error("Brand icon validation failed: %s", e)
             raise HTTPException(status_code=422, detail=f"品牌图标无效: {e}") from None
+    # 依赖 S3 的选项要求 S3 已完整配置（含凭据），避免保存后静默退化为本地
+    needs_s3 = payload.log_cleanup_mode == "upload" or payload.storage_mode in ("s3", "both")
+    if needs_s3:
+        s3_cfg = await store.get_s3_config()
+        secrets: SecretsStore = request.app.state.secrets_store
+        s3_ready = (
+            s3_cfg.enabled
+            and s3_cfg.endpoint
+            and s3_cfg.bucket
+            and s3_cfg.datapath
+            and bool(secrets.s3_access_id and secrets.s3_access_key)
+        )
+        if not s3_ready:
+            raise HTTPException(
+                status_code=422,
+                detail="该配置依赖 S3，请先在「S3 存储配置」中完成配置（含凭据）",
+            )
     saved = await store.update_app_settings(payload)
     # 结果保留上限立即生效并裁剪超出部分
     request.app.state.result_store.resize(saved.result_max_records)
@@ -130,6 +148,42 @@ async def delete_api_token(request: Request) -> dict:
     secrets_store.set_api_token(None)
     logger.info("API token deleted, external API access disabled")
     return {"ok": True}
+
+
+@router.post("/s3/test")
+async def test_s3_settings(
+    request: Request, payload: S3ConfigPayload | None = None
+) -> dict:
+    """测试 S3 连接：可携带表单配置（凭据留空用已保存），否则用已保存配置。"""
+    store = _get_config_store(request)
+    secrets: SecretsStore = request.app.state.secrets_store
+    if payload is None or not payload.model_fields_set:
+        # 无 body 或空对象：用已保存配置
+        cfg = await store.get_s3_config()
+        access_id, access_key = secrets.s3_access_id, secrets.s3_access_key
+    else:
+        cfg = S3Config.model_validate(payload.model_dump(exclude={"access_id", "access_key"}))
+        access_id = payload.access_id or secrets.s3_access_id
+        access_key = payload.access_key or secrets.s3_access_key
+    if not (cfg.endpoint and cfg.bucket):
+        raise HTTPException(status_code=400, detail="请先填写 endpoint 与 bucket")
+    if not (access_id and access_key):
+        raise HTTPException(status_code=400, detail="请先填写 Access ID 与 Access Key")
+    try:
+        storage = S3Storage(cfg, access_id, access_key)
+        exists = await asyncio.to_thread(storage.bucket_exists)
+    except Exception as e:  # noqa: BLE001
+        logger.error("S3 connection test failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"S3 连接失败: {e}") from None
+    logger.info(
+        "S3 connection test ok: endpoint=%s bucket=%s exists=%s",
+        cfg.endpoint,
+        cfg.bucket,
+        exists,
+    )
+    if exists:
+        return {"ok": True, "info": f"连接成功，bucket「{cfg.bucket}」存在"}
+    return {"ok": True, "info": "连接成功，但 bucket 不存在（请在服务端创建）"}
 
 
 @router.post("/webhook/test")

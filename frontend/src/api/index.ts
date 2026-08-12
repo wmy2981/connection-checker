@@ -93,6 +93,11 @@ export const api = {
   getS3Config: () => request<S3Config>('/settings/s3'),
   updateS3Config: (cfg: S3ConfigInput) =>
     request<S3Config>('/settings/s3', { method: 'PUT', body: JSON.stringify(cfg) }),
+  testS3: (cfg: S3ConfigInput) =>
+    request<{ ok: boolean; info: string }>('/settings/s3/test', {
+      method: 'POST',
+      body: JSON.stringify(cfg),
+    }),
   getApiToken: () => request<{ token: string | null }>('/settings/api-token'),
   generateApiToken: () =>
     request<{ token: string }>('/settings/api-token/generate', {

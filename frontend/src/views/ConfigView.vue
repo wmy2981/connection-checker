@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -79,6 +79,16 @@ const s3 = ref<S3Config>({
 })
 const s3Credentials = ref<{ access_id: string; access_key: string }>({ access_id: '', access_key: '' })
 const s3Saving = ref(false)
+const s3Testing = ref(false)
+
+const s3Ready = computed(
+  () =>
+    s3.value.enabled &&
+    !!s3.value.endpoint &&
+    !!s3.value.bucket &&
+    !!s3.value.datapath &&
+    s3.value.has_credentials,
+)
 
 const apiToken = ref<string | null>(null)
 
@@ -286,6 +296,14 @@ async function clearBrandIcon() {
 }
 
 async function saveAppSettings() {
+  const needsS3 =
+    appSettings.value.log_cleanup_mode === 'upload' ||
+    appSettings.value.storage_mode === 'both' ||
+    appSettings.value.storage_mode === 's3'
+  if (needsS3 && !s3Ready.value) {
+    message.error('日志保留/记录存储模式依赖 S3，请先在「S3 存储配置」中完成配置（含凭据）')
+    return
+  }
   appSaving.value = true
   try {
     appSettings.value = await api.updateAppSettings(appSettings.value)
@@ -382,25 +400,40 @@ async function copyToken() {
   }
 }
 
+async function s3Payload(): Promise<S3ConfigInput> {
+  return {
+    enabled: s3.value.enabled,
+    endpoint: s3.value.endpoint.trim(),
+    bucket: s3.value.bucket.trim(),
+    region: s3.value.region?.trim() || null,
+    datapath: s3.value.datapath.trim(),
+    access_id: s3Credentials.value.access_id.trim() || null,
+    access_key: s3Credentials.value.access_key || null,
+  }
+}
+
 async function saveS3() {
   s3Saving.value = true
   try {
-    const payload: S3ConfigInput = {
-      enabled: s3.value.enabled,
-      endpoint: s3.value.endpoint.trim(),
-      bucket: s3.value.bucket.trim(),
-      region: s3.value.region?.trim() || null,
-      datapath: s3.value.datapath.trim(),
-      access_id: s3Credentials.value.access_id.trim() || null,
-      access_key: s3Credentials.value.access_key || null,
-    }
-    s3.value = await api.updateS3Config(payload)
+    s3.value = await api.updateS3Config(await s3Payload())
     s3Credentials.value = { access_id: '', access_key: '' }
     message.success('S3 配置已保存')
   } catch (e) {
     message.error(errText(e))
   } finally {
     s3Saving.value = false
+  }
+}
+
+async function testS3() {
+  s3Testing.value = true
+  try {
+    const r = await api.testS3(await s3Payload())
+    message.success(r.info)
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    s3Testing.value = false
   }
 }
 
@@ -721,6 +754,7 @@ const columns: DataTableColumns<Target> = [
             </n-space>
             <n-space align="end" :size="12">
               <span v-if="s3.enabled && !s3.has_credentials" class="hint">尚未配置凭据，S3 功能不可用</span>
+              <n-button :loading="s3Testing" @click="testS3">测试连接</n-button>
               <n-button type="primary" :loading="s3Saving" @click="saveS3">保存 S3 配置</n-button>
             </n-space>
           </n-space>
