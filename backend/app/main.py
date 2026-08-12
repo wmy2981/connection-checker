@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import api_router
 from app.auth import Security
 from app.config import Settings
+from app.log_cleaner import LogCleaner
 from app.logging_setup import configure
 from app.notifier import Notifier
 from app.scheduler import Scheduler
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
     security = Security(secrets_store, cfg)
     notifier = Notifier(config_store)
     scheduler = Scheduler(config_store, result_store, notifier, cfg)
+    log_cleaner = LogCleaner(config_store, secrets_store, cfg)
 
     app.state.config_store = config_store
     app.state.result_store = result_store
@@ -54,10 +56,12 @@ async def lifespan(app: FastAPI):
         logger.info("Auth enabled")
 
     await scheduler.start()
+    await log_cleaner.start()
     try:
         yield
     finally:
         await scheduler.stop()
+        await log_cleaner.stop()
 
 
 def create_app(settings: Settings) -> FastAPI:

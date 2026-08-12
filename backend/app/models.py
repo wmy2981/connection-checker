@@ -170,3 +170,6 @@ class AppSettings(BaseModel):
     http_timeout: float = Field(default=5.0, gt=0, le=120)  # HTTP 超时（秒）
     stats_window: int = Field(default=50, ge=10, le=10_000)  # 仪表盘统计的近 N 次检查
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARN|ERROR)$")
+    # 日志自动清理：none=不清理 / delete=删除 n 天前日志 / upload=上传 S3 后删除本地
+    log_cleanup_mode: str = Field(default="delete", pattern="^(none|delete|upload)$")
+    log_retention_days: int = Field(default=30, ge=1, le=3650)

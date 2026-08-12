@@ -2,14 +2,13 @@
 
 级别来源为 config.json 的 app.log_level（DEBUG/INFO/WARN/ERROR），由启动时装配、
 watchdog 检测到配置变更时热更新。文件按进程本地时区（容器内 TZ 环境变量生效）
-每天切一个新文件，旧文件保留 LOG_RETENTION_DAYS 天。
+每天切一个新文件。旧日志的清理（删除或上传 S3）由 LogCleaner 服务按
+config.json 的 app.log_cleanup_mode / app.log_retention_days 执行。
 """
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-
-LOG_RETENTION_DAYS = 30
 
 _LEVELS = {
     "DEBUG": logging.DEBUG,
@@ -33,7 +32,7 @@ class DailyFileHandler(logging.Handler):
 
     TimedRotatingFileHandler 的轮转基于进程本地时间，Windows 开发机上不读 TZ
     环境变量；这里显式用 astimezone() 保证与前端展示时区一致。文件名为
-    app-YYYY-MM-DD.log，切日时顺带清理超过 LOG_RETENTION_DAYS 的旧文件。
+    app-YYYY-MM-DD.log；旧文件清理由 LogCleaner 服务负责。
     """
 
     def __init__(self, log_dir: Path, encoding: str = "utf-8") -> None:
@@ -62,16 +61,6 @@ class DailyFileHandler(logging.Handler):
             self.log_dir / f"app-{date}.log", "a", encoding=self.encoding
         )
         self._current_date = date
-        self._cleanup()
-
-    def _cleanup(self) -> None:
-        for f in self.log_dir.glob("app-*.log"):
-            try:
-                stamp = datetime.strptime(f.name[len("app-"):-len(".log")], "%Y-%m-%d")
-            except ValueError:
-                continue
-            if (datetime.now().astimezone().date() - stamp.date()).days > LOG_RETENTION_DAYS:
-                f.unlink(missing_ok=True)
 
     def close(self) -> None:
         if self._stream is not None:

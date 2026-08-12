@@ -129,6 +129,8 @@ export interface AppSettings {
   http_timeout: number
   stats_window: number
   log_level: string
+  log_cleanup_mode: string
+  log_retention_days: number
 }
 
 export interface LogEntry {

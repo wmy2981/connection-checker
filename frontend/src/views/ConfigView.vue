@@ -49,8 +49,16 @@ const appSettings = ref<AppSettings>({
   http_timeout: 5,
   stats_window: 50,
   log_level: 'INFO',
+  log_cleanup_mode: 'delete',
+  log_retention_days: 30,
 })
 const appSaving = ref(false)
+
+const logCleanupOptions = [
+  { label: '删除', value: 'delete' },
+  { label: '上传 S3', value: 'upload' },
+  { label: '不清理', value: 'none' },
+]
 
 const s3 = ref<S3Config>({
   enabled: false,
@@ -527,6 +535,24 @@ const columns: DataTableColumns<Target> = [
                 style="width: 120px"
               />
               <span class="hint">保存到 config.json，热加载生效；级别越低日志越详细</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">日志保留模式</span>
+              <n-select
+                v-model:value="appSettings.log_cleanup_mode"
+                :options="logCleanupOptions"
+                style="width: 140px"
+              />
+              <span class="hint">delete=删除 n 天前日志 / upload=上传 S3 后删本地（需先配置 S3）/ none=不清理</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">日志保留天数</span>
+              <n-input-number
+                v-model:value="appSettings.log_retention_days"
+                :min="1"
+                :max="3650"
+                style="width: 180px"
+              />
             </n-space>
             <n-space justify="end">
               <n-button type="primary" :loading="appSaving" @click="saveAppSettings">保存全局设置</n-button>
