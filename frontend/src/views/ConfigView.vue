@@ -794,7 +794,7 @@ const columns: DataTableColumns<Target> = [
   >
     <n-space vertical :size="12">
       <n-space align="center" :size="12" wrap>
-        <span class="label">最低级别</span>
+        <span class="label">级别</span>
         <n-select
           v-model:value="logLevel"
           :options="logLevelOptions"
