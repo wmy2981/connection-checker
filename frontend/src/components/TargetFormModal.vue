@@ -54,6 +54,15 @@ const schemeOptions = [
   { label: 'https', value: 'https' },
 ]
 
+// 常用检查间隔快捷选择
+const intervalOptions = [
+  { label: '30s', value: 30 },
+  { label: '1m', value: 60 },
+  { label: '5m', value: 300 },
+  { label: '15m', value: 900 },
+  { label: '1h', value: 3600 },
+]
+
 watch(
   () => [props.show, props.target],
   () => {
@@ -225,6 +234,18 @@ function submit() {
         <n-form-item label="间隔(秒)" required>
           <n-space vertical style="width: 100%">
             <n-input-number v-model:value="form.check_interval" :min="0" :step="5" style="width: 100%" />
+            <n-space :size="4" wrap>
+              <n-button
+                v-for="opt in intervalOptions"
+                :key="opt.value"
+                size="tiny"
+                secondary
+                :type="form.check_interval === opt.value ? 'primary' : 'default'"
+                @click="form.check_interval = opt.value"
+              >
+                {{ opt.label }}
+              </n-button>
+            </n-space>
             <span class="hint">0 = 关闭定时检查，仅手动触发</span>
           </n-space>
         </n-form-item>
