@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, claude-code/self-improve]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, claude-code/self-improve]
 
 concurrency:
   group: ci-${{ github.ref }}

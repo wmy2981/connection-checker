@@ -2,10 +2,11 @@ name: Build Docker Image
 
 # main 的镜像在 Release workflow 成功之后构建（workflow_run），确保构建时
 # checkout 到含新版本号的 release commit（push 并行触发会导致镜像版本号滞后）；
-# dev 分支的预发行/跳过由 push 直接构建 dev 镜像。
+# dev 分支的预发行/跳过由 push 直接构建 dev 镜像；
+# claude-code/self-improve 迭代分支直接构建 sha 前 7 位标签镜像。
 on:
   push:
-    branches: [dev]
+    branches: [dev, claude-code/self-improve]
   workflow_run:
     workflows: ["Release"]
     types: [completed]
@@ -47,12 +48,16 @@ jobs:
         run: |
           VERSION=$(python3 -c 'import re;print(re.search(r"^version\s*=\s*\"([^\"]+)\"", open("pyproject.toml").read(), re.M).group(1))')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha7=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           {
             echo "tags<<EOF"
             if [ "${{ github.ref }}" = "refs/heads/main" ]; then
               # 正式版：latest + 当前版本号标签
               echo "${{ env.IMAGE }}:v${VERSION}"
               echo "${{ env.IMAGE }}:latest"
+            elif [ "${{ github.ref }}" = "refs/heads/claude-code/self-improve" ]; then
+              # 迭代分支：只推提交哈希前 7 位标签（覆盖更新，不污染版本标签）
+              echo "${{ env.IMAGE }}:${GITHUB_SHA:0:7}"
             elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               # dev 上正式版号 = 即将在 main 发正式版，只推 dev 标签避免版本标签被抢占
               echo "${{ env.IMAGE }}:dev"
@@ -72,4 +77,4 @@ jobs:
           push: true
           tags: |
             ${{ steps.set-tag.outputs.tags }}
-            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:${{ steps.set-tag.outputs.sha7 }}
