@@ -132,6 +132,7 @@ export interface AppSettings {
   log_cleanup_mode: string
   log_retention_days: number
   storage_mode: string
+  brand_icon: string | null
 }
 
 export interface LogEntry {

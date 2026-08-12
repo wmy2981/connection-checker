@@ -26,6 +26,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { api } from '@/api'
 import AppFooter from '@/components/AppFooter.vue'
+import BrandLogo from '@/components/BrandLogo.vue'
 import StatsCards from '@/components/StatsCards.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import TrendChart from '@/components/TrendChart.vue'
@@ -317,7 +318,7 @@ const columns: DataTableColumns<CheckResult> = [
     <n-layout-header bordered class="header">
       <div class="container header-inner">
         <div class="brand">
-          <img src="/favicon.svg" alt="" class="brand-logo" />
+          <BrandLogo />
           <span>连接检查工具</span>
         </div>
         <n-space align="center" wrap :size="8">
@@ -513,11 +514,6 @@ const columns: DataTableColumns<CheckResult> = [
   font-size: 18px;
   font-weight: 600;
   white-space: nowrap;
-}
-.brand-logo {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
 }
 .content {
   padding: 32px 0 48px;

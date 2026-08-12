@@ -25,6 +25,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { api } from '@/api'
 import AppFooter from '@/components/AppFooter.vue'
+import BrandLogo from '@/components/BrandLogo.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, WebhookConfig } from '@/types'
@@ -52,6 +53,7 @@ const appSettings = ref<AppSettings>({
   log_cleanup_mode: 'delete',
   log_retention_days: 30,
   storage_mode: 'local',
+  brand_icon: null,
 })
 const appSaving = ref(false)
 
@@ -79,6 +81,9 @@ const s3Credentials = ref<{ access_id: string; access_key: string }>({ access_id
 const s3Saving = ref(false)
 
 const apiToken = ref<string | null>(null)
+
+const brandIconInput = ref('')
+const brandSaving = ref(false)
 
 const logLevelOptions = [
   { label: 'DEBUG', value: 'DEBUG' },
@@ -244,8 +249,39 @@ async function load() {
 async function loadAppSettings() {
   try {
     appSettings.value = await api.getAppSettings()
+    brandIconInput.value = appSettings.value.brand_icon ?? ''
   } catch {
     /* 401 由 client 处理 */
+  }
+}
+
+async function saveBrandIcon() {
+  const icon = brandIconInput.value.trim()
+  if (!icon) {
+    message.error('请先输入图标 URL 或 base64 data URI')
+    return
+  }
+  brandSaving.value = true
+  try {
+    appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    message.success('品牌图标已保存')
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    brandSaving.value = false
+  }
+}
+
+async function clearBrandIcon() {
+  brandSaving.value = true
+  try {
+    appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: null })
+    brandIconInput.value = ''
+    message.success('已恢复默认图标')
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    brandSaving.value = false
   }
 }
 
@@ -502,7 +538,10 @@ const columns: DataTableColumns<Target> = [
   <n-layout class="page">
     <n-layout-header bordered class="header">
       <div class="container header-inner">
-        <div class="brand">配置管理</div>
+        <div class="brand">
+          <BrandLogo />
+          <span>配置管理</span>
+        </div>
         <n-space align="center" wrap :size="8">
           <n-button size="small" @click="router.push('/dashboard')">返回仪表盘</n-button>
           <n-button size="small" @click="openLogs">日志管理</n-button>
@@ -713,6 +752,28 @@ const columns: DataTableColumns<Target> = [
           </n-space>
           </n-card>
 
+          <n-card title="品牌图标" size="small">
+          <n-space vertical size="large">
+            <n-space align="center" :size="12" wrap>
+              <img :src="brandIconInput || '/favicon.svg'" alt="图标预览" class="brand-preview" />
+              <span class="hint">预览；必须是正方形（PNG/JPEG/GIF/WebP/SVG），不符合将被拒绝保存</span>
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">图标</span>
+              <n-input
+                v-model:value="brandIconInput"
+                placeholder="图片 URL 或 base64 data URI（data:image/png;base64,...）"
+                clearable
+                style="width: 420px"
+              />
+            </n-space>
+            <n-space align="end">
+              <n-button :loading="brandSaving" type="primary" @click="saveBrandIcon">保存图标</n-button>
+              <n-button v-if="appSettings.brand_icon" :loading="brandSaving" @click="clearBrandIcon">恢复默认</n-button>
+            </n-space>
+          </n-space>
+          </n-card>
+
         </n-space>
       </div>
     </n-layout-content>
@@ -796,9 +857,20 @@ const columns: DataTableColumns<Target> = [
   gap: 12px;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 18px;
   font-weight: 600;
   white-space: nowrap;
+}
+.brand-preview {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid var(--cc-panel-border);
+  border-radius: 6px;
+  flex-shrink: 0;
 }
 .content {
   padding: 32px 0 48px;

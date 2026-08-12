@@ -631,3 +631,35 @@ def test_api_token_requires_json_content_type(logged_client: TestClient):
         headers={**_bearer(token), "content-type": "text/plain"},
     )
     assert resp.status_code == 415
+
+
+def test_brand_icon_validation(logged_client: TestClient):
+    """品牌图标：正方形 data URI 可保存，非正方形/非法来源被 422 拒绝。"""
+    import base64
+    import struct
+
+    def png_uri(w: int, h: int) -> str:
+        sig = b"\x89PNG\r\n\x1a\n"
+        ihdr = b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", w, h) + b"\x08\x06\x00\x00\x00"
+        return "data:image/png;base64," + base64.b64encode(sig + ihdr).decode()
+
+    cfg = logged_client.get("/api/v1/settings/app").json()
+    cfg["brand_icon"] = png_uri(32, 32)
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 200
+    assert resp.json()["brand_icon"] == cfg["brand_icon"]
+
+    cfg["brand_icon"] = png_uri(32, 16)
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 422
+    assert "正方形" in resp.json()["detail"]
+
+    cfg["brand_icon"] = "not-an-icon"
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 422
+
+    # 清空回默认
+    cfg["brand_icon"] = None
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 200
+    assert resp.json()["brand_icon"] is None

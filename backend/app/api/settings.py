@@ -1,4 +1,5 @@
 """应用设置：Webhook 告警配置、全局检查参数、S3 配置与 API Token。"""
+import asyncio
 import logging
 import secrets
 
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.auth import require_auth
+from app.icon_validate import validate_icon
 from app.models import AppSettings, S3Config, WebhookConfig
 from app.notifier import Notifier
 from app.storage import ConfigStore, SecretsStore
@@ -43,6 +45,12 @@ async def get_app_settings(request: Request) -> AppSettings:
 @router.put("/app")
 async def update_app_settings(request: Request, payload: AppSettings) -> AppSettings:
     store = _get_config_store(request)
+    if payload.brand_icon:
+        try:
+            await asyncio.to_thread(validate_icon, payload.brand_icon)
+        except ValueError as e:
+            logger.error("Brand icon validation failed: %s", e)
+            raise HTTPException(status_code=422, detail=f"品牌图标无效: {e}") from None
     saved = await store.update_app_settings(payload)
     # 结果保留上限立即生效并裁剪超出部分
     request.app.state.result_store.resize(saved.result_max_records)

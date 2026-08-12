@@ -175,3 +175,5 @@ class AppSettings(BaseModel):
     log_retention_days: int = Field(default=30, ge=1, le=3650)
     # 检查记录存储：local=仅本地 / s3=仅 S3 / both=双写（S3 永久保留）
     storage_mode: str = Field(default="local", pattern="^(local|s3|both)$")
+    # 品牌图标：base64 data URI 或 http(s) URL，必须是正方形；null = 用默认图标
+    brand_icon: str | None = Field(default=None, max_length=2_000_000)
