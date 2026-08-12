@@ -127,8 +127,23 @@ const logData = ref<{ results: LogEntry[]; total: number; page_size: number; pag
 // 表格高度（减去筛选区/分页区等固定部分）。modal 高度 auto（内容驱动）时不联动，
 // 否则表格高度反作用于内容形成正反馈循环。
 let logResizeObserver: ResizeObserver | null = null
+let logPollTimer: number | null = null
+const LOG_POLL_INTERVAL = 15_000
 watch(showLogs, async (v) => {
-  if (!v) return
+  if (!v) {
+    // 关闭时停止自动刷新
+    if (logPollTimer != null) {
+      window.clearInterval(logPollTimer)
+      logPollTimer = null
+    }
+    return
+  }
+  // 弹窗打开期间每 15s 自动刷新，持续追踪最新日志（保持当前筛选与页码）
+  if (logPollTimer == null) {
+    logPollTimer = window.setInterval(() => {
+      if (showLogs.value) void fetchLogs()
+    }, LOG_POLL_INTERVAL)
+  }
   await nextTick()
   logResizeObserver?.disconnect()
   const modal = document.querySelector<HTMLElement>('.n-modal')
