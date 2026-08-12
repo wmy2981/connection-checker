@@ -108,6 +108,12 @@ function uptimeClass(pct: number): string {
 const detail = ref<CheckResult | null>(null)
 const showDetail = ref(false)
 
+// HTTPS 检查的证书剩余天数（extra.tls.days_remaining），用于提前发现即将过期
+const certDays = computed(() => {
+  const tls = detail.value?.extra?.tls as { days_remaining?: number } | undefined
+  return tls?.days_remaining != null ? tls.days_remaining : null
+})
+
 function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
@@ -524,6 +530,15 @@ const columns: DataTableColumns<CheckResult> = [
           </n-tag>
         </n-descriptions-item>
         <n-descriptions-item label="延迟">{{ detail.latency_ms != null ? `${detail.latency_ms}ms` : '-' }}</n-descriptions-item>
+        <n-descriptions-item v-if="certDays != null" label="证书剩余">
+          <n-tag
+            size="small"
+            :type="certDays <= 0 ? 'error' : certDays < 30 ? 'warning' : 'success'"
+            :bordered="false"
+          >
+            {{ certDays }} 天
+          </n-tag>
+        </n-descriptions-item>
         <n-descriptions-item label="信息">{{ detail.message }}</n-descriptions-item>
         <n-descriptions-item label="附加数据">
           <pre class="extra">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
