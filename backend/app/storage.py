@@ -509,6 +509,34 @@ class ResultStore:
                 b["avg_latency_ms"] = round(sum(vals) / len(vals), 1)
         return list(buckets.values())
 
+    async def uptime_per_target(
+        self, target_ids: list[str], hours: int = 24
+    ) -> dict[str, dict[str, Any]]:
+        """近 N 小时内每个目标的总检查数与成功率（无结果时 uptime_pct 为 None）。
+
+        窗口为滚动时间（now - hours），与 trend 的整点桶不同；用于目标可用率展示。
+        """
+        async with self._lock:
+            results = list(self._results)
+        cutoff = datetime.now().astimezone() - timedelta(hours=hours)
+        agg: dict[str, dict[str, Any]] = {}
+        for tid in target_ids:
+            agg[tid] = {"total": 0, "success": 0, "uptime_pct": None}
+        for r in results:
+            t = r.checked_at.astimezone()
+            if t < cutoff:
+                continue
+            a = agg.get(r.target_id)
+            if a is None:
+                continue
+            a["total"] += 1
+            if r.status == "success":
+                a["success"] += 1
+        for a in agg.values():
+            if a["total"]:
+                a["uptime_pct"] = round(a["success"] / a["total"] * 100, 1)
+        return agg
+
     async def latest_per_target(self, target_ids: list[str]) -> dict[str, CheckResult]:
         """返回每个目标最近一条结果（按时间倒序找首个）。"""
         async with self._lock:

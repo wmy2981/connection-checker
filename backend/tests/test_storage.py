@@ -283,6 +283,31 @@ async def test_latest_per_target_and_counts(tmp_path):
     assert counts["timeout"] == 1
 
 
+async def test_uptime_per_target(tmp_path):
+    """可用率统计：仅计滚动窗口内结果，无样本返回 None。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    await store.append(_result("t1", "success", now))
+    await store.append(_result("t1", "success", now - timedelta(minutes=5)))
+    await store.append(_result("t1", "fail", now - timedelta(minutes=10)))
+    await store.append(_result("t2", "timeout", now - timedelta(minutes=1)))
+    # 超出 24h 窗口的旧记录不计入
+    await store.append(_result("t1", "success", now - timedelta(hours=25)))
+
+    up = await store.uptime_per_target(["t1", "t2", "ghost"])
+    assert up["t1"]["total"] == 3
+    assert up["t1"]["success"] == 2
+    assert up["t1"]["uptime_pct"] == round(2 / 3 * 100, 1)
+    assert up["t2"]["total"] == 1
+    assert up["t2"]["uptime_pct"] == 0.0
+    assert up["ghost"] == {"total": 0, "success": 0, "uptime_pct": None}
+
+    # 自定义窗口：6 小时内 3 条都在窗口内
+    up6 = await store.uptime_per_target(["t1"], hours=6)
+    assert up6["t1"]["total"] == 3
+    assert up6["t1"]["uptime_pct"] == round(2 / 3 * 100, 1)
+
+
 async def test_result_store_datetime_range_cross_day(tmp_path):
     """start_at/end_at 完整时间范围过滤，支持跨日（如 22:00 到次日 06:00）。"""
     store = ResultStore(tmp_path / "results.jsonl", max_records=100)

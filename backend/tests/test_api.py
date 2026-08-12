@@ -391,7 +391,11 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     assert stats["enabled_targets"] == 1
     assert stats["last_total_checks"] == 1
     assert stats["last_fail"] == 1
-    assert stats["target_status"][0]["last_status"] == "fail"
+    ts = stats["target_status"][0]
+    assert ts["last_status"] == "fail"
+    # 近 24h 可用率字段（全部失败 → 0%）
+    assert ts["uptime_pct"] == 0.0
+    assert ts["uptime_total"] == 1
 
 
 def test_results_multi_value_filters(logged_client, fake_checker, no_scheduler):

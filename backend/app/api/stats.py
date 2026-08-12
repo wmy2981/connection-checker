@@ -14,6 +14,7 @@ async def summary(request: Request) -> StatsSummary:
 
     targets = await config_store.list_targets()
     latest = await result_store.latest_per_target([t.id for t in targets])
+    uptime = await result_store.uptime_per_target([t.id for t in targets])
     app_cfg = await config_store.get_app_settings()
     counts = await result_store.count_by_status(app_cfg.stats_window)
     recent = await result_store.recent(1)
@@ -22,6 +23,7 @@ async def summary(request: Request) -> StatsSummary:
     target_status = []
     for t in targets:
         r = latest.get(t.id)
+        up = uptime.get(t.id, {})
         target_status.append(
             {
                 "target_id": t.id,
@@ -34,6 +36,9 @@ async def summary(request: Request) -> StatsSummary:
                 "last_latency_ms": r.latency_ms if r else None,
                 "last_checked_at": r.checked_at if r else None,
                 "last_message": r.message if r else None,
+                # 近 24 小时可用率（滚动窗口）；无样本时为 None
+                "uptime_pct": up.get("uptime_pct"),
+                "uptime_total": up.get("total"),
             }
         )
 

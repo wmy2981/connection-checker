@@ -329,13 +329,15 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:8000/api/v1/targets
       "last_status": "success",
       "last_latency_ms": 12.3,
       "last_checked_at": "2026-08-06T08:00:00+00:00",
-      "last_message": "平均延迟 12ms，丢包率 0%"
+      "last_message": "平均延迟 12ms，丢包率 0%",
+      "uptime_pct": 99.9,
+      "uptime_total": 1438
     }
   ]
 }
 ```
 
-状态计数为最近 50 条检查结果的统计；`target_status` 为每个目标的最新一次结果。
+状态计数为最近 50 条检查结果的统计；`target_status` 为每个目标的最新一次结果；`uptime_pct` / `uptime_total` 为该目标近 24 小时滚动窗口的可用率（无样本时为 `null`）与检查次数。
 
 ## 实时推送（SSE）
 

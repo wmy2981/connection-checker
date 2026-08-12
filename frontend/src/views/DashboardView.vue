@@ -98,6 +98,13 @@ const statusTag: Record<string, { type: 'success' | 'error' | 'warning' | 'defau
 
 const methodLabel: Record<string, string> = { ping: 'Ping', port: '端口', http: 'HTTP', dns: 'DNS' }
 
+// 近 24h 可用率着色：≥99.9% 绿、≥95% 橙、其余红
+function uptimeClass(pct: number): string {
+  if (pct >= 99.9) return 'up-good'
+  if (pct >= 95) return 'up-warn'
+  return 'up-bad'
+}
+
 const detail = ref<CheckResult | null>(null)
 const showDetail = ref(false)
 
@@ -360,6 +367,14 @@ const columns: DataTableColumns<CheckResult> = [
                   {{ statusTag[t.last_status]?.label }}
                 </n-tag>
                 <span v-if="t.last_latency_ms != null" class="lat">{{ t.last_latency_ms }}ms</span>
+                <span
+                  v-if="t.uptime_pct != null"
+                  class="uptime"
+                  :class="uptimeClass(t.uptime_pct)"
+                  :title="`近 24 小时 ${t.uptime_total} 次检查的可用率`"
+                >
+                  24h {{ t.uptime_pct }}%
+                </span>
                 <span v-if="!t.enabled" class="off">已停用</span>
                 <span v-else-if="t.check_interval === 0" class="off">仅手动</span>
                 <n-button
@@ -565,6 +580,20 @@ const columns: DataTableColumns<CheckResult> = [
 .off {
   color: var(--cc-text-3);
   font-size: 12px;
+}
+.uptime {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.up-good {
+  color: #0ca30c;
+}
+.up-warn {
+  color: #fab219;
+}
+.up-bad {
+  color: #d03b3b;
 }
 .table {
   margin-top: 14px;

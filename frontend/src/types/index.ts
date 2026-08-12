@@ -87,6 +87,8 @@ export interface TargetStatus {
   last_latency_ms: number | null
   last_checked_at: string | null
   last_message: string | null
+  uptime_pct: number | null
+  uptime_total: number | null
 }
 
 export interface StatsSummary {
