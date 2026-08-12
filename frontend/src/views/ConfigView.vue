@@ -539,7 +539,10 @@ async function duplicate(t: Target) {
   }
 }
 
+const modalSaving = ref(false)
+
 async function save(payload: TargetInput) {
+  modalSaving.value = true
   try {
     if (editing.value) {
       await api.updateTarget(editing.value.id, payload)
@@ -552,6 +555,8 @@ async function save(payload: TargetInput) {
     await load()
   } catch (e) {
     message.error(errText(e))
+  } finally {
+    modalSaving.value = false
   }
 }
 
@@ -948,6 +953,7 @@ const columns: DataTableColumns<Target> = [
   <TargetFormModal
     v-model:show="modalShow"
     :target="editing"
+    :saving="modalSaving"
     @save="save"
   />
 

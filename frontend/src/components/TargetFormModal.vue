@@ -18,7 +18,7 @@ import {
 import { copyText } from '@/composables/useClipboard'
 import type { CheckMethod, Target, TargetInput, TimeRange } from '@/types'
 
-const props = defineProps<{ show: boolean; target: Target | null }>()
+const props = defineProps<{ show: boolean; target: Target | null; saving?: boolean }>()
 const emit = defineEmits<{
   'update:show': [value: boolean]
   save: [payload: TargetInput]
@@ -96,6 +96,7 @@ function validate(): string | null {
   if (!form.name?.trim() && !form.ip.trim()) return '请填写名称或 IP'
   if (!form.ip.trim()) return '请填写 IP 或主机名'
   if (form.check_method === 'port' && !form.port) return '端口检查需要填写端口'
+  if (form.time_ranges.some((r) => !r.start || !r.end)) return '时间窗口的开始/结束时间不能为空'
   return null
 }
 
@@ -107,11 +108,13 @@ async function copyId() {
 }
 
 function submit() {
+  if (saving.value) return
   const err = validate()
   if (err) {
     message.error(err)
     return
   }
+  saving.value = true
   const payload: TargetInput = {
     name: form.name.trim() || null,
     ip: form.ip.trim(),
@@ -128,6 +131,7 @@ function submit() {
     timeout: form.timeout,
   }
   emit('save', payload)
+  saving.value = false
 }
 </script>
 
@@ -260,7 +264,7 @@ function submit() {
       <template #footer>
         <n-space justify="end">
           <n-button @click="emit('update:show', false)">取消</n-button>
-          <n-button type="primary" :loading="saving" @click="submit">保存</n-button>
+          <n-button type="primary" :loading="saving || props.saving" @click="submit">保存</n-button>
         </n-space>
       </template>
     </n-card>
