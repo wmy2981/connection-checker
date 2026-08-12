@@ -15,6 +15,7 @@ async def summary(request: Request) -> StatsSummary:
     targets = await config_store.list_targets()
     latest = await result_store.latest_per_target([t.id for t in targets])
     uptime = await result_store.uptime_per_target([t.id for t in targets])
+    notifier = request.app.state.notifier
     app_cfg = await config_store.get_app_settings()
     counts = await result_store.count_by_status(app_cfg.stats_window)
     recent = await result_store.recent(1)
@@ -39,6 +40,8 @@ async def summary(request: Request) -> StatsSummary:
                 # 近 24 小时可用率（滚动窗口）；无样本时为 None
                 "uptime_pct": up.get("uptime_pct"),
                 "uptime_total": up.get("total"),
+                # 当前连续失败次数（告警模块跟踪；成功/未失败过为 0）
+                "consecutive_fails": notifier.consecutive_fails(t.id),
             }
         )
 

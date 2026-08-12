@@ -433,6 +433,8 @@ def test_stats_summary(logged_client: TestClient, fake_checker, no_scheduler):
     # 近 24h 可用率字段（全部失败 → 0%）
     assert ts["uptime_pct"] == 0.0
     assert ts["uptime_total"] == 1
+    # 连续失败计数由告警模块跟踪
+    assert ts["consecutive_fails"] == 1
 
 
 def test_results_filter_by_check_method(logged_client, fake_checker, no_scheduler):

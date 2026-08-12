@@ -19,22 +19,29 @@ class Notifier:
         self._last_fail_count: dict[str, int] = {}
 
     async def observe(self, result: CheckResult) -> None:
-        """根据一条新检查结果更新失败计数并在跨越阈值时发送通知。"""
-        cfg = await self.config_store.get_webhook_config()
-        if not cfg.enabled or not cfg.url:
-            return
+        """根据一条新检查结果更新失败计数并在跨越阈值时发送通知。
+
+        连续失败计数独立于告警配置：即使 webhook 未启用也跟踪（供统计接口展示），
+        通知推送则按配置与目标开关决定。
+        """
         tid = result.target_id
-        target = await self.config_store.get_target(tid)
-        if target is not None and not target.notify_enabled:
-            return  # 该目标单独关闭了告警（含恢复通知）
         if result.status == "success":
-            was_alerted = tid in self._alerted
             self._fails[tid] = 0
             logger.debug(
                 "Target %s consecutive fails reset to 0",
                 result.target_name or result.ip,
             )
-            if was_alerted:
+        else:
+            self._fails[tid] = self._fails.get(tid, 0) + 1
+
+        cfg = await self.config_store.get_webhook_config()
+        if not cfg.enabled or not cfg.url:
+            return
+        target = await self.config_store.get_target(tid)
+        if target is not None and not target.notify_enabled:
+            return  # 该目标单独关闭了告警（含恢复通知）
+        if result.status == "success":
+            if tid in self._alerted:
                 self._alerted.discard(tid)
                 fails = self._last_fail_count.pop(tid, 0)
                 summary = (
@@ -48,8 +55,7 @@ class Notifier:
                 await self._send("恢复", summary, result, cfg.url)
             return
 
-        n = self._fails.get(tid, 0) + 1
-        self._fails[tid] = n
+        n = self._fails[tid]
         logger.debug(
             "Target %s consecutive fails=%d threshold=%d",
             result.target_name or result.ip,
@@ -65,6 +71,10 @@ class Notifier:
                 n,
             )
             await self._send("告警", f"连续 {n} 次检查失败", result, cfg.url)
+
+    def consecutive_fails(self, target_id: str) -> int:
+        """当前连续失败次数（未失败过为 0），供统计接口展示。"""
+        return self._fails.get(target_id, 0)
 
     async def send_test(self, url: str) -> tuple[bool, str]:
         """向 Webhook 发送一条测试消息，返回 (是否成功, 详情)。"""

@@ -90,6 +90,7 @@ export interface TargetStatus {
   last_message: string | null
   uptime_pct: number | null
   uptime_total: number | null
+  consecutive_fails: number
 }
 
 export interface StatsSummary {

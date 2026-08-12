@@ -492,6 +492,15 @@ const columns: DataTableColumns<CheckResult> = [
                 >
                   24h {{ t.uptime_pct }}%
                 </span>
+                <n-tag
+                  v-if="t.consecutive_fails > 0"
+                  size="small"
+                  type="error"
+                  :bordered="false"
+                  title="当前连续失败次数"
+                >
+                  连败 {{ t.consecutive_fails }}
+                </n-tag>
                 <span v-if="!t.enabled" class="off">已停用</span>
                 <span v-else-if="t.check_interval === 0" class="off">仅手动</span>
                 <n-button
