@@ -51,6 +51,7 @@ const appSettings = ref<AppSettings>({
   log_level: 'INFO',
   log_cleanup_mode: 'delete',
   log_retention_days: 30,
+  storage_mode: 'local',
 })
 const appSaving = ref(false)
 
@@ -58,6 +59,12 @@ const logCleanupOptions = [
   { label: '删除', value: 'delete' },
   { label: '上传 S3', value: 'upload' },
   { label: '不清理', value: 'none' },
+]
+
+const storageModeOptions = [
+  { label: '仅本地', value: 'local' },
+  { label: '本地 + S3 双写', value: 'both' },
+  { label: '仅 S3', value: 's3' },
 ]
 
 const s3 = ref<S3Config>({
@@ -553,6 +560,15 @@ const columns: DataTableColumns<Target> = [
                 :max="3650"
                 style="width: 180px"
               />
+            </n-space>
+            <n-space align="center" :size="12" wrap>
+              <span class="label">记录存储模式</span>
+              <n-select
+                v-model:value="appSettings.storage_mode"
+                :options="storageModeOptions"
+                style="width: 180px"
+              />
+              <span class="hint">仅 S3 / 双写需先配置 S3；S3 上按天对象永久保留</span>
             </n-space>
             <n-space justify="end">
               <n-button type="primary" :loading="appSaving" @click="saveAppSettings">保存全局设置</n-button>

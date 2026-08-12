@@ -1,4 +1,5 @@
-"""S3 兼容存储封装（minio SDK）：endpoint 解析与对象上传。"""
+"""S3 兼容存储封装（minio SDK）：endpoint 解析、对象读写。"""
+import io
 from pathlib import Path
 
 from minio import Minio
@@ -37,3 +38,32 @@ class S3Storage:
     def upload_file(self, object_name: str, file_path: Path) -> None:
         """上传本地文件到 bucket 的指定对象；bucket 不存在/凭据错误/网络失败抛异常。"""
         self._client.fput_object(self.bucket, object_name, str(file_path))
+
+    def put_data(self, object_name: str, data: bytes) -> None:
+        """写入字节数据到指定对象（覆盖）。"""
+        self._client.put_object(
+            self.bucket, object_name, io.BytesIO(data), length=len(data)
+        )
+
+    def get_data(self, object_name: str) -> bytes | None:
+        """读取对象内容；对象不存在时返回 None，其他错误抛异常。"""
+        from minio.error import S3Error
+
+        try:
+            resp = self._client.get_object(self.bucket, object_name)
+        except S3Error as e:
+            if e.code == "NoSuchKey":
+                return None
+            raise
+        try:
+            return resp.read()
+        finally:
+            resp.close()
+            resp.release_conn()
+
+    def list_objects(self, prefix: str) -> list[str]:
+        """列出指定前缀下的全部对象名（递归）。"""
+        return [
+            obj.object_name
+            for obj in self._client.list_objects(self.bucket, prefix=prefix, recursive=True)
+        ]

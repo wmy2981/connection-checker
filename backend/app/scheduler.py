@@ -8,7 +8,7 @@ from app.config import Settings
 from app.logging_setup import apply_level
 from app.models import CheckResult, Target
 from app.notifier import Notifier
-from app.storage import ConfigStore, ResultStore
+from app.storage import ConfigStore, ResultStore, SecretsStore
 from app.timeutil import is_time_in_ranges
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,13 @@ class Scheduler:
         result_store: ResultStore,
         notifier: Notifier,
         settings: Settings,
+        secrets_store: SecretsStore | None = None,
     ) -> None:
         self.config_store = config_store
         self.result_store = result_store
         self.notifier = notifier
         self.settings = settings
+        self.secrets_store = secrets_store
         self._tasks: dict[str, asyncio.Task] = {}
         self._watchdog: asyncio.Task | None = None
         self._last_mtime: float | None = config_store.file_mtime()
@@ -182,6 +184,14 @@ class Scheduler:
                     app_cfg = await self.config_store.get_app_settings()
                     # resize 是同步方法；await 它会在 Python 3.12 抛 TypeError 杀死 watchdog
                     self.result_store.resize(app_cfg.result_max_records)
+                    if self.secrets_store is not None:
+                        s3_cfg = await self.config_store.get_s3_config()
+                        self.result_store.set_s3_mode(
+                            app_cfg.storage_mode,
+                            s3_cfg,
+                            self.secrets_store.s3_access_id,
+                            self.secrets_store.s3_access_key,
+                        )
                     apply_level(app_cfg.log_level)
                     await self.reconcile()
                     logger.info(

@@ -173,3 +173,5 @@ class AppSettings(BaseModel):
     # 日志自动清理：none=不清理 / delete=删除 n 天前日志 / upload=上传 S3 后删除本地
     log_cleanup_mode: str = Field(default="delete", pattern="^(none|delete|upload)$")
     log_retention_days: int = Field(default=30, ge=1, le=3650)
+    # 检查记录存储：local=仅本地 / s3=仅 S3 / both=双写（S3 永久保留）
+    storage_mode: str = Field(default="local", pattern="^(local|s3|both)$")

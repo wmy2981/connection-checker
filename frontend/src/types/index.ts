@@ -131,6 +131,7 @@ export interface AppSettings {
   log_level: string
   log_cleanup_mode: string
   log_retention_days: number
+  storage_mode: string
 }
 
 export interface LogEntry {

@@ -19,6 +19,7 @@ from app.models import (
     WebhookConfig,
     new_id,
 )
+from app.s3_storage import S3Storage
 from app.timeutil import hhmm_in_range
 
 logger = logging.getLogger(__name__)
@@ -199,17 +200,61 @@ class ConfigStore:
 
 
 class ResultStore:
-    """检查结果，存于 data/results.jsonl（每行一个 JSON）。追加写，超上限截断最旧。"""
+    """检查结果，存于 data/results.jsonl（每行一个 JSON）。追加写，超上限截断最旧。
 
-    def __init__(self, path: Path, max_records: int):
+    storage_mode=local 仅本地；=both 本地 + S3 双写；=s3 主存 S3（本地文件作兜底缓冲），
+    启动时从 S3 加载并合并本地文件补缺。S3 按天对象 datapath/results/YYYY-MM-DD.jsonl
+    永久保留（不随本地裁剪丢失）。
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        max_records: int,
+        storage_mode: str = "local",
+        s3: S3Storage | None = None,
+    ):
         self.path = path
         self.max_records = max_records
+        self._storage_mode = storage_mode
+        self._s3 = s3
+        self._s3_prefix = self._s3.cfg.datapath.rstrip("/") + "/results/" if s3 else ""
         self._lock = asyncio.Lock()
         self._results: deque[CheckResult] = deque()
+        self._seen_ids: set[str] = set()
         self._subscribers: set[asyncio.Queue] = set()
         self._load()
 
     def _load(self) -> None:
+        merge_local = False
+        if self._s3 is not None and self._storage_mode == "s3":
+            try:
+                self._load_from_s3()
+                merge_local = True
+            except Exception as e:  # noqa: BLE001
+                logger.warning("S3 results load failed: %s; falling back to local file", e)
+        self._load_local(merge=merge_local)
+        while len(self._results) > self.max_records:
+            self._results.popleft()
+
+    def _load_from_s3(self) -> None:
+        for object_name in self._s3.list_objects(self._s3_prefix):
+            data = self._s3.get_data(object_name)
+            if not data:
+                continue
+            for line in data.decode("utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = CheckResult.model_validate_json(line)
+                except Exception:
+                    continue
+                self._seen_ids.add(r.id)
+                self._results.append(r)
+        logger.info("Loaded %d results from S3", len(self._results))
+
+    def _load_local(self, merge: bool = False) -> None:
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8") as f:
@@ -218,11 +263,34 @@ class ResultStore:
                 if not line:
                     continue
                 try:
-                    self._results.append(CheckResult.model_validate_json(line))
+                    r = CheckResult.model_validate_json(line)
                 except Exception:
                     continue
-        while len(self._results) > self.max_records:
-            self._results.popleft()
+                if merge and r.id in self._seen_ids:
+                    continue
+                self._results.append(r)
+
+    def set_s3_mode(
+        self, storage_mode: str, s3_cfg: S3Config | None, access_id: str, access_key: str
+    ) -> None:
+        """热更新存储模式与 S3 客户端（配置变更后由 watchdog 调用）。"""
+        if (
+            storage_mode == "local"
+            or s3_cfg is None
+            or not s3_cfg.enabled
+            or not (access_id and access_key)
+        ):
+            self._s3 = None
+            self._storage_mode = storage_mode
+        else:
+            self._s3 = S3Storage(s3_cfg, access_id, access_key)
+            self._storage_mode = storage_mode
+        self._s3_prefix = self._s3.cfg.datapath.rstrip("/") + "/results/" if self._s3 else ""
+        logger.info(
+            "Result storage mode=%s s3=%s",
+            self._storage_mode,
+            "enabled" if self._s3 else "disabled",
+        )
 
     def _persist_all(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,7 +323,48 @@ class ResultStore:
                 f.write(result.model_dump_json() + "\n")
             if trimmed:
                 self._persist_all()
+            if self._s3 is not None:
+                try:
+                    await asyncio.to_thread(
+                        self._sync_to_s3,
+                        result.checked_at.astimezone().strftime("%Y-%m-%d"),
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.error(
+                        "S3 results sync failed: %s; results kept in local file", e
+                    )
         await self._broadcast(result)
+
+    def _sync_to_s3(self, date_str: str) -> None:
+        """把指定日期当天的记录全量合并上传为 S3 对象（按 id 去重，永久保留）。
+
+        先拉取已有对象再并入新行，避免本地裁剪导致 S3 历史丢失。
+        """
+        object_name = f"{self._s3_prefix}{date_str}.jsonl"
+        merged: dict[str, str] = {}
+        try:
+            data = self._s3.get_data(object_name)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to fetch existing S3 object %s: %s", object_name, e)
+            data = None
+        if data:
+            for line in data.decode("utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    merged[CheckResult.model_validate_json(line).id] = line
+                except Exception:
+                    continue
+        for r in self._results:
+            if r.checked_at.astimezone().strftime("%Y-%m-%d") == date_str:
+                merged[r.id] = r.model_dump_json()
+        payload = "".join(v + "\n" for v in merged.values())
+        if payload:
+            self._s3.put_data(object_name, payload.encode("utf-8"))
+        logger.debug(
+            "Synced %d records to s3://%s/%s", len(merged), self._s3.bucket, object_name
+        )
 
     @staticmethod
     def _matches(f: ResultFilter, r: CheckResult) -> bool:

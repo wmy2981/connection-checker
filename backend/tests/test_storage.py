@@ -356,3 +356,130 @@ async def test_config_load_errors_logged(tmp_path, caplog):
         store = ConfigStore(data_dir)
     assert any("Invalid app settings" in r.message for r in caplog.records)
     assert await store.get_app_settings() == AppSettings()
+
+
+class FakeS3:
+    """内存版 S3 客户端：duck-typing S3Storage 接口，便于断言同步行为。"""
+
+    def __init__(self, datapath: str = "data/"):
+        from types import SimpleNamespace
+
+        self.cfg = SimpleNamespace(datapath=datapath, bucket="cc")
+        self.objects: dict[str, bytes] = {}
+        self.fail_put = False
+        self.put_calls = 0
+
+    def put_data(self, object_name: str, data: bytes) -> None:
+        self.put_calls += 1
+        if self.fail_put:
+            raise RuntimeError("s3 down")
+        self.objects[object_name] = data
+
+    def get_data(self, object_name: str) -> bytes | None:
+        return self.objects.get(object_name)
+
+    def list_objects(self, prefix: str) -> list[str]:
+        return sorted(k for k in self.objects if k.startswith(prefix))
+
+
+class BrokenS3:
+    cfg = FakeS3().cfg
+
+    def list_objects(self, prefix: str):
+        raise RuntimeError("s3 down")
+
+    def get_data(self, object_name: str):
+        raise RuntimeError("s3 down")
+
+
+async def test_result_store_both_mode_syncs_to_s3(tmp_path):
+    """both 模式：本地照常写，S3 按天对象同步，对象含记录内容。"""
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    r = _result("t1", "success", datetime.now(timezone.utc))
+    await store.append(r)
+    date = r.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert s3.put_calls == 1
+    obj = s3.objects[f"data/results/{date}.jsonl"]
+    assert r.model_dump_json().encode() in obj
+    assert (tmp_path / "results.jsonl").exists()  # 本地文件仍写（兜底）
+
+
+async def test_result_store_s3_sync_merges_existing(tmp_path):
+    """S3 对象按 id 去重合并：新 append 不覆盖旧记录。"""
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    old = _result("t1", "success", datetime.now(timezone.utc))
+    await store.append(old)
+    date = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    new = _result("t2", "fail", datetime.now(timezone.utc))
+    await store.append(new)
+    obj = s3.objects[f"data/results/{date}.jsonl"].decode("utf-8")
+    assert old.id in obj and new.id in obj
+
+
+async def test_result_store_s3_sync_failure_keeps_local(tmp_path, caplog):
+    """S3 写失败：ERROR 日志 + 不抛异常 + 记录留在本地文件。"""
+    import logging
+
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    s3.fail_put = True
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        await store.append(_result("t1", "success", datetime.now(timezone.utc)))
+    assert any("S3 results sync failed" in r.message for r in caplog.records)
+    assert (tmp_path / "results.jsonl").read_text(encoding="utf-8").strip()
+
+
+async def test_result_store_s3_mode_loads_from_s3(tmp_path):
+    """s3 模式启动时从 S3 加载全部对象。"""
+    s3 = FakeS3()
+    r = _result("t1", "success", datetime.now(timezone.utc))
+    date = r.checked_at.astimezone().strftime("%Y-%m-%d")
+    s3.objects[f"data/results/{date}.jsonl"] = (r.model_dump_json() + "\n").encode()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=s3)
+    recent = await store.recent(10)
+    assert len(recent) == 1 and recent[0].id == r.id
+
+
+async def test_result_store_s3_mode_merges_local_backfill(tmp_path):
+    """s3 模式加载：S3 为主，本地文件补 S3 缺失的记录（失败期间不丢）。"""
+    s3 = FakeS3()
+    old = _result("t1", "success", datetime.now(timezone.utc))
+    date = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    s3.objects[f"data/results/{date}.jsonl"] = (old.model_dump_json() + "\n").encode()
+    fresh = _result("t2", "fail", datetime.now(timezone.utc))
+    (tmp_path / "results.jsonl").write_text(fresh.model_dump_json() + "\n", encoding="utf-8")
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=s3)
+    recent = await store.recent(10)
+    assert {r.id for r in recent} == {old.id, fresh.id}
+
+
+async def test_result_store_s3_load_failure_falls_back_local(tmp_path, caplog):
+    """s3 模式 S3 不可达：WARN + 回退本地文件。"""
+    import logging
+
+    r = _result("t1", "success", datetime.now(timezone.utc))
+    (tmp_path / "results.jsonl").write_text(r.model_dump_json() + "\n", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="app.storage"):
+        store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=BrokenS3())
+    recent = await store.recent(10)
+    assert len(recent) == 1
+    assert any("falling back to local" in x.message for x in caplog.records)
+
+
+def test_result_store_set_s3_mode_switches(tmp_path):
+    """set_s3_mode 热更新：启用/禁用 S3 客户端与对象前缀。"""
+    from app.models import S3Config
+
+    store = ResultStore(tmp_path / "results.jsonl", 100)
+    store.set_s3_mode(
+        "both",
+        S3Config(enabled=True, endpoint="http://x", bucket="b", datapath="data/"),
+        "id",
+        "key",
+    )
+    assert store._s3 is not None
+    assert store._s3_prefix == "data/results/"
+    store.set_s3_mode("local", None, "", "")
+    assert store._s3 is None
