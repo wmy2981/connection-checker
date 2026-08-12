@@ -542,6 +542,7 @@ const columns: DataTableColumns<CheckResult> = [
                 >
                   {{ statusTag[t.last_status]?.label }}
                 </n-tag>
+                <n-tag v-else size="small" :bordered="false">未检查</n-tag>
                 <span v-if="t.last_latency_ms != null" class="lat">{{ t.last_latency_ms }}ms</span>
                 <span
                   v-if="t.uptime_pct != null"
