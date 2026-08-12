@@ -305,3 +305,54 @@ async def test_result_store_datetime_range_cross_day(tmp_path):
     # 只给结束（无起始）
     hits = await store.query(ResultFilter(end_at="2026-08-10T06:00:00", page_size=100))
     assert hits.total == 2
+
+
+async def test_config_load_errors_logged(tmp_path, caplog):
+    """配置损坏时报 error 日志便于排查，原错误处理行为不变（回退默认/跳过）。"""
+    import logging
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+
+    # JSON 解析失败 → error + 重建默认配置
+    (data_dir / "config.json").write_text("{broken json", encoding="utf-8")
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        store = ConfigStore(data_dir)
+    assert any("Failed to parse config.json" in r.message for r in caplog.records)
+    assert await store.get_app_settings() == AppSettings()
+
+    # 单条 target 损坏 → error + 跳过该条，其余正常
+    valid_target = {
+        "id": "ok1",
+        "name": "正常",
+        "ip": "8.8.8.8",
+        "check_method": "ping",
+        "check_interval": 60,
+    }
+    data = {
+        "version": 1,
+        "check_targets": [
+            valid_target,
+            {"id": "bad1", "ip": "", "check_method": "nonsense"},
+            "not-a-dict",
+        ],
+        "webhook": {},
+        "app": {},
+    }
+    (data_dir / "config.json").write_text(json.dumps(data), encoding="utf-8")
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        store = ConfigStore(data_dir)
+    errors = [r for r in caplog.records if "Invalid check target" in r.message]
+    assert len(errors) == 2  # bad1 与 not-a-dict 各一条
+    assert (await store.get_target("ok1")) is not None
+    assert (await store.get_target("bad1")) is None
+
+    # app 节无效 → error + 默认值
+    data["app"] = {"stats_window": "not-a-number"}
+    (data_dir / "config.json").write_text(json.dumps(data), encoding="utf-8")
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        store = ConfigStore(data_dir)
+    assert any("Invalid app settings" in r.message for r in caplog.records)
+    assert await store.get_app_settings() == AppSettings()

@@ -61,7 +61,12 @@ class ConfigStore:
             return
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(
+                "Failed to parse config.json (%s): %s; resetting to defaults",
+                type(e).__name__,
+                e,
+            )
             self._persist()
             return
         self.targets = {}
@@ -72,26 +77,33 @@ class ConfigStore:
                 self.targets[t.id] = t
                 if "notify_enabled" not in item:
                     backfill = True
-            except Exception:
-                continue  # 单条损坏不拖垮整体
+            except Exception as e:
+                # 单条损坏不拖垮整体，但记录 error 便于排查
+                tid = item.get("id", "<no id>") if isinstance(item, dict) else "<non-dict>"
+                logger.error(
+                    "Invalid check target in config.json skipped (id=%s): %s",
+                    tid,
+                    e,
+                )
+                continue
         raw_webhook = raw.get("webhook")
         if isinstance(raw_webhook, dict):
             try:
                 self._webhook = WebhookConfig.model_validate(raw_webhook)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Invalid webhook config in config.json: %s", e)
         raw_app = raw.get("app")
         if isinstance(raw_app, dict):
             try:
                 self._app = AppSettings.model_validate(raw_app)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Invalid app settings in config.json: %s", e)
         raw_s3 = raw.get("s3")
         if isinstance(raw_s3, dict):
             try:
                 self._s3 = S3Config.model_validate(raw_s3)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Invalid s3 config in config.json: %s", e)
         if backfill:
             # 旧版配置缺少 notify_enabled，补默认 true 并写回，保证字段齐全
             self._persist()
