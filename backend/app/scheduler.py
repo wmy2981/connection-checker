@@ -172,8 +172,9 @@ class Scheduler:
             return []
         sem = asyncio.Semaphore(10)
 
-        async def _guarded(t: Target) -> CheckResult | None:
-            # 单个目标异常（防御性，检查器通常不抛）不拖垮其他目标
+        async def _guarded(t: Target) -> CheckResult:
+            # 单个目标异常（防御性，检查器通常不抛）不拖垮其他目标，
+            # 但以 error 结果返回：崩溃在界面可见，而不是被静默丢弃（前端会误报「全部正常」）
             try:
                 async with sem:
                     return await self.run_check(t)
@@ -181,10 +182,19 @@ class Scheduler:
                 logger.error(
                     "Manual check failed for %s (%s): %s", t.name or t.ip, t.id, e
                 )
-                return None
+                return CheckResult(
+                    target_id=t.id,
+                    target_name=t.name,
+                    ip=t.ip,
+                    check_method=t.check_method,
+                    status="error",
+                    latency_ms=None,
+                    message=f"check crashed: {e}",
+                    extra={},
+                )
 
         results = await asyncio.gather(*(_guarded(t) for t in selected))
-        return [r for r in results if r is not None]
+        return list(results)
 
     async def _watch_config(self) -> None:
         """检测 config.json 被外部编辑并热重载。"""

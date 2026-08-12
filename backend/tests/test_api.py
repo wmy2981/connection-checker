@@ -169,6 +169,25 @@ def test_csrf_content_type_check(logged_client: TestClient):
     assert resp.status_code == 415
 
 
+def test_manual_run_crash_returns_error_result(
+    logged_client: TestClient, no_scheduler, monkeypatch
+):
+    """检查器崩溃：run 接口返回 error 结果，而非静默少一条（前端误报全部正常）。"""
+
+    class BoomChecker:
+        async def check(self, target):  # noqa: ANN001
+            raise RuntimeError("checker exploded")
+
+    monkeypatch.setattr("app.scheduler.build_checker", lambda *a, **k: BoomChecker())
+    logged_client.post("/api/v1/targets", json=_payload())
+    resp = logged_client.post("/api/v1/checks/run", json={})
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["status"] == "error"
+    assert "checker exploded" in results[0]["message"]
+
+
 def test_manual_run_and_results(logged_client: TestClient, fake_checker, no_scheduler):
     fake_checker(status="success", message="假检查成功", latency_ms=12.3)
     logged_client.post("/api/v1/targets", json=_payload())
