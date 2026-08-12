@@ -154,9 +154,16 @@ function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
 
-// 行按状态着色：成功绿、失败红、超时橙、错误亮橙（低透明度底色，深浅主题均适用）
+// 行按状态着色（成功绿、失败红、超时橙、错误亮橙）且点击整行可打开详情
 function rowProps(r: CheckResult): Record<string, unknown> {
-  return { class: `row-${r.status}` }
+  return {
+    class: `row-${r.status}`,
+    style: 'cursor: pointer',
+    onClick: () => {
+      detail.value = r
+      showDetail.value = true
+    },
+  }
 }
 
 function errText(e: unknown): string {
