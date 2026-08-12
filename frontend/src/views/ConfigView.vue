@@ -457,6 +457,17 @@ async function saveS3() {
   }
 }
 
+async function clearS3Credentials() {
+  try {
+    // 传空字符串显式清除已保存凭据（null 语义是不修改）
+    const payload = await s3Payload()
+    s3.value = await api.updateS3Config({ ...payload, access_id: '', access_key: '' })
+    message.success('S3 凭据已清除，S3 功能停用')
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
 async function testS3() {
   s3Testing.value = true
   try {
@@ -912,6 +923,16 @@ const columns: DataTableColumns<Target> = [
               <span v-if="s3.enabled && !s3.has_credentials" class="hint">尚未配置凭据，S3 功能不可用</span>
               <n-button :loading="s3Testing" @click="testS3">测试连接</n-button>
               <n-button type="primary" :loading="s3Saving" @click="saveS3">保存 S3 配置</n-button>
+              <n-popconfirm
+                v-if="s3.has_credentials"
+                :positive-button-props="{ type: 'error' }"
+                @positive-click="clearS3Credentials"
+              >
+                <template #trigger>
+                  <n-button type="error" secondary>清除凭据</n-button>
+                </template>
+                确认清除已保存的 S3 凭据？S3 功能将立即停用
+              </n-popconfirm>
             </n-space>
           </n-space>
           </n-card>
