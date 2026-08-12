@@ -531,6 +531,8 @@ const columns: DataTableColumns<CheckResult> = [
     title: '延迟',
     key: 'latency_ms',
     width: 90,
+    sorter: (a: CheckResult, b: CheckResult) =>
+      (a.latency_ms ?? -1) - (b.latency_ms ?? -1),
     render: (r) =>
       r.latency_ms != null
         ? h('span', { class: latencyClass(r.latency_ms) }, `${r.latency_ms}ms`)
