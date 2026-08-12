@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import StreamingResponse
 
 from app.auth import require_auth
 
@@ -205,21 +205,24 @@ async def export_logs(
     start: str | None = Query(default=None, description="起始时间，格式同列表接口"),
     end: str | None = Query(default=None, description="结束时间，格式同列表接口"),
     source: str | None = Query(default=None, description="来源筛选，逗号分隔多值，格式同列表接口"),
-) -> PlainTextResponse:
-    lines = []
-    for entry in _filtered(request, level, start, end, source):
-        # 新格式含来源段；旧格式行无来源信息时按旧格式导出
-        if entry["source"]:
-            lines.append(
-                f"{entry['time']} | {entry['level']} | {entry['name']}"
-                f" | {entry['source']} | {entry['message']}"
-            )
-        else:
-            lines.append(
-                f"{entry['time']} | {entry['level']} | {entry['name']} | {entry['message']}"
-            )
-    text = "\n".join(lines) + ("\n" if lines else "")
+) -> StreamingResponse:
+    def _gen():
+        for entry in _filtered(request, level, start, end, source):
+            # 新格式含来源段；旧格式行无来源信息时按旧格式导出
+            if entry["source"]:
+                yield (
+                    f"{entry['time']} | {entry['level']} | {entry['name']}"
+                    f" | {entry['source']} | {entry['message']}\n"
+                )
+            else:
+                yield (
+                    f"{entry['time']} | {entry['level']} | {entry['name']}"
+                    f" | {entry['message']}\n"
+                )
+
     fname = f"logs-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
-    return PlainTextResponse(
-        text, headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+    return StreamingResponse(
+        _gen(),
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
