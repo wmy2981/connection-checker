@@ -15,6 +15,26 @@ def _payload(name: str = "测试", method: str = "ping", ip: str = "8.8.8.8") ->
     return {"name": name, "ip": ip, "check_method": method, "check_interval": 60}
 
 
+async def test_s3_mode_without_credentials_warns(tmp_path):
+    """storage_mode=s3 但 S3 未启用/无凭据：启动 WARNING 提示静默降级本地，不静默运行。"""
+    from app.storage import ConfigStore
+
+    settings = Settings(
+        _env_file=None,
+        data_dir=tmp_path / "data",
+        access_code="",
+        jwt_secret="x" * 40,
+    )
+    store = ConfigStore(settings.data_dir)
+    await store.update_app_settings(AppSettings(storage_mode="s3"))
+    app = create_app(settings)
+    with TestClient(app) as c:
+        assert c.get("/api/v1/auth/me").status_code == 200
+    log_file = next((tmp_path / "data" / "logs").glob("app-*.log"))
+    text = log_file.read_text(encoding="utf-8")
+    assert "will stay local only" in text
+
+
 def test_no_access_code_disables_auth(tmp_path):
     """未设置访问码 = 免认证模式：直接访问面板，登录接口随意通过。"""
     settings = Settings(
