@@ -98,6 +98,32 @@ const apiToken = ref<string | null>(null)
 
 const brandIconInput = ref('')
 const brandSaving = ref(false)
+const iconFileInput = ref<HTMLInputElement | null>(null)
+
+// 本地上传图标：转 base64 data URI 填入输入框（预览后保存）；限 1MB（后端字段上限 2M）
+const ICON_FILE_MAX = 1 * 1024 * 1024
+
+function pickIconFile() {
+  iconFileInput.value?.click()
+}
+
+function onIconFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (file.size > ICON_FILE_MAX) {
+    message.warning('图片超过 1MB，请压缩后重试')
+    input.value = ''
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    brandIconInput.value = String(reader.result ?? '')
+    message.info('已载入图片，保存后生效')
+  }
+  reader.readAsDataURL(file)
+  input.value = '' // 允许重复选择同一文件
+}
 
 const logLevelOptions = [
   { label: 'DEBUG', value: 'DEBUG' },
@@ -978,6 +1004,14 @@ const columns: DataTableColumns<Target> = [
                 clearable
                 style="width: 420px"
               />
+              <n-button size="small" secondary @click="pickIconFile">上传图片</n-button>
+              <input
+                ref="iconFileInput"
+                type="file"
+                accept="image/*"
+                class="hidden-file"
+                @change="onIconFile"
+              />
             </n-space>
             <n-space align="end">
               <n-button :loading="brandSaving" type="primary" @click="saveBrandIcon">保存图标</n-button>
@@ -1104,6 +1138,9 @@ const columns: DataTableColumns<Target> = [
   color: var(--cc-text-3);
   font-size: 12px;
   white-space: nowrap;
+}
+.hidden-file {
+  display: none;
 }
 .lat-warn {
   color: #fab219;
