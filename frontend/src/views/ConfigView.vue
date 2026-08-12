@@ -569,7 +569,10 @@ const columns: DataTableColumns<Target> = [
     title: '时间窗口',
     key: 'time_ranges',
     minWidth: 150,
-    render: (t) => t.time_ranges.map((r) => `${r.start}–${r.end}`).join(', '),
+    render: (t) =>
+      t.time_ranges.length
+        ? t.time_ranges.map((r) => `${r.start}–${r.end}`).join(', ')
+        : '全天',
   },
   {
     title: '启用',
