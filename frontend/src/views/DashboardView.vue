@@ -618,59 +618,63 @@ const columns: DataTableColumns<CheckResult> = [
                 :title="t.last_checked_at ? `最近检查：${formatTime(t.last_checked_at)}` : '暂无检查记录'"
                 @click="filterByTarget(t.target_id)"
               >
-                <n-badge
-                  dot
-                  :type="statusTag[t.last_status ?? 'error']?.type ?? 'default'"
-                  :show="!!t.last_status"
-                />
-                <span class="tname">{{ t.name || t.ip }}</span>
-                <n-tag size="small" :bordered="false">{{ methodLabel[t.check_method] }}</n-tag>
-                <n-tag
-                  v-if="t.last_status"
-                  size="small"
-                  :type="statusTag[t.last_status]?.type ?? 'default'"
-                  :bordered="false"
-                >
-                  {{ statusTag[t.last_status]?.label }}
-                </n-tag>
-                <n-tag v-else size="small" :bordered="false">未检查</n-tag>
-                <span
-                  v-if="t.last_latency_ms != null"
-                  class="lat"
-                  :class="latencyClass(t.last_latency_ms)"
-                >
-                  {{ t.last_latency_ms }}ms
-                </span>
-                <span
-                  v-if="t.uptime_pct != null"
-                  class="uptime"
-                  :class="uptimeClass(t.uptime_pct)"
-                  :title="`近 24 小时 ${t.uptime_total} 次检查的可用率；点击查看该目标 7 天趋势`"
-                  @click.stop="focusTrend(t.target_id)"
-                >
-                  24h {{ t.uptime_pct }}%
-                </span>
-                <n-tag
-                  v-if="t.consecutive_fails > 0"
-                  size="small"
-                  type="error"
-                  :bordered="false"
-                  title="当前连续失败次数"
-                >
-                  连败 {{ t.consecutive_fails }}
-                </n-tag>
-                <span v-if="!t.enabled" class="off">已停用</span>
-                <span v-else-if="t.check_interval === 0" class="off">仅手动</span>
-                <n-button
-                  v-if="t.enabled"
-                  size="tiny"
-                  type="primary"
-                  secondary
-                  :loading="runningIds.has(t.target_id)"
-                  @click.stop="runOne(t.target_id)"
-                >
-                  检查
-                </n-button>
+                <div class="tc-main">
+                  <n-badge
+                    dot
+                    :type="statusTag[t.last_status ?? 'error']?.type ?? 'default'"
+                    :show="!!t.last_status"
+                  />
+                  <span class="tname">{{ t.name || t.ip }}</span>
+                  <span v-if="!t.enabled" class="off">已停用</span>
+                  <span v-else-if="t.check_interval === 0" class="off">仅手动</span>
+                  <n-button
+                    v-if="t.enabled"
+                    size="tiny"
+                    type="primary"
+                    secondary
+                    :loading="runningIds.has(t.target_id)"
+                    @click.stop="runOne(t.target_id)"
+                  >
+                    检查
+                  </n-button>
+                </div>
+                <div class="tc-meta">
+                  <n-tag size="small" :bordered="false">{{ methodLabel[t.check_method] }}</n-tag>
+                  <n-tag
+                    v-if="t.last_status"
+                    size="small"
+                    :type="statusTag[t.last_status]?.type ?? 'default'"
+                    :bordered="false"
+                  >
+                    {{ statusTag[t.last_status]?.label }}
+                  </n-tag>
+                  <n-tag v-else size="small" :bordered="false">未检查</n-tag>
+                  <span
+                    v-if="t.last_latency_ms != null"
+                    class="lat"
+                    :class="latencyClass(t.last_latency_ms)"
+                  >
+                    {{ t.last_latency_ms }}ms
+                  </span>
+                  <span
+                    v-if="t.uptime_pct != null"
+                    class="uptime"
+                    :class="uptimeClass(t.uptime_pct)"
+                    :title="`近 24 小时 ${t.uptime_total} 次检查的可用率；点击查看该目标 7 天趋势`"
+                    @click.stop="focusTrend(t.target_id)"
+                  >
+                    24h {{ t.uptime_pct }}%
+                  </span>
+                  <n-tag
+                    v-if="t.consecutive_fails > 0"
+                    size="small"
+                    type="error"
+                    :bordered="false"
+                    title="当前连续失败次数"
+                  >
+                    连败 {{ t.consecutive_fails }}
+                  </n-tag>
+                </div>
               </div>
             </div>
             <n-empty v-else description="还没有检查目标，去「配置管理」添加">
@@ -680,9 +684,9 @@ const columns: DataTableColumns<CheckResult> = [
             </n-empty>
           </n-card>
 
-          <n-card :title="trendUnit === 'day' ? '成功率趋势（近 7 天）' : '成功率趋势（近 24 小时）'" size="small">
+          <n-card class="trend-card" :title="trendUnit === 'day' ? '成功率趋势（近 7 天）' : '成功率趋势（近 24 小时）'" size="small">
             <template #header-extra>
-              <n-space align="center" :size="8">
+              <div class="trend-tools">
                 <n-radio-group v-model:value="trendUnit" size="small">
                   <n-radio-button value="hour">24h</n-radio-button>
                   <n-radio-button value="day">7 天</n-radio-button>
@@ -693,9 +697,9 @@ const columns: DataTableColumns<CheckResult> = [
                   clearable
                   placeholder="全部目标"
                   size="small"
-                  style="width: 200px"
+                  class="trend-target"
                 />
-              </n-space>
+              </div>
             </template>
             <TrendChart v-if="trend && trend.buckets.length" :buckets="trend.buckets" />
             <n-empty v-else description="暂无数据" />
@@ -912,8 +916,8 @@ const columns: DataTableColumns<CheckResult> = [
 }
 .target-card {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--cc-panel-border);
   border-radius: 8px;
@@ -921,6 +925,22 @@ const columns: DataTableColumns<CheckResult> = [
   transition:
     background 0.2s,
     border-color 0.2s;
+}
+/* 主行：状态圆点 + 名称 + 操作按钮；元数据行：标签类信息（可换行） */
+.tc-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.tc-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  width: 100%;
+  min-width: 0;
 }
 .target-card:hover {
   background: var(--cc-hover);
@@ -986,6 +1006,16 @@ const columns: DataTableColumns<CheckResult> = [
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+}
+/* 趋势卡头部工具条：窄屏时随标题换行占满一行，避免标题被挤压成竖排 */
+.trend-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trend-target {
+  width: 200px;
 }
 .sse-on .sse-dot {
   background: #0ca30c;
@@ -1054,6 +1084,23 @@ const columns: DataTableColumns<CheckResult> = [
   }
   .content {
     padding: 16px 0 32px;
+  }
+  /* 窄屏：趋势卡标题独占一行，工具条换行到标题下方 */
+  .trend-card :deep(.n-card-header) {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .trend-card :deep(.n-card-header__main) {
+    flex: 1 0 100%;
+  }
+  .trend-card :deep(.n-card-header__extra) {
+    margin-left: 0;
+    width: 100%;
+  }
+  .trend-target {
+    flex: 1;
+    min-width: 140px;
+    width: auto;
   }
 }
 </style>
