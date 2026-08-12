@@ -498,6 +498,8 @@ const columns: DataTableColumns<CheckResult> = [
     key: 'checked_at',
     width: 120,
     fixed: 'left',
+    sorter: (a: CheckResult, b: CheckResult) =>
+      new Date(b.checked_at).getTime() - new Date(a.checked_at).getTime(),
     render: (r) => h('span', { title: formatTime(r.checked_at) }, relTime(r.checked_at)),
   },
   {
