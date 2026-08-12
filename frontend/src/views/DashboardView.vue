@@ -150,6 +150,28 @@ const httpMeta = computed(() => {
   }
 })
 
+// dns 解析结果（地址列表），详情弹窗友好展示
+const dnsMeta = computed(() => {
+  const e = detail.value?.extra
+  if (detail.value?.check_method !== 'dns' || !e) return null
+  return {
+    resolved: (e.resolved_ip as string[] | undefined) ?? [],
+    count: e.resolved_count as number | undefined,
+  }
+})
+
+// port 连接信息（远端/本机地址），详情弹窗友好展示
+const portMeta = computed(() => {
+  const e = detail.value?.extra
+  if (detail.value?.check_method !== 'port' || !e) return null
+  return {
+    remoteIp: e.remote_ip as string | undefined,
+    remotePort: e.remote_port as number | undefined,
+    localIp: e.local_ip as string | undefined,
+    localPort: e.local_port as number | undefined,
+  }
+})
+
 function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
@@ -651,6 +673,14 @@ const columns: DataTableColumns<CheckResult> = [
           <template v-if="httpMeta.ttfb != null">TTFB {{ httpMeta.ttfb }}ms · </template>
           <template v-if="httpMeta.size != null">{{ httpMeta.size }}B · </template>
           <template v-if="httpMeta.tlsVersion">TLS {{ httpMeta.tlsVersion }}</template>
+        </n-descriptions-item>
+        <n-descriptions-item v-if="dnsMeta" label="解析结果">
+          {{ dnsMeta.resolved.length ? dnsMeta.resolved.join('、') : '无地址' }}
+          <template v-if="dnsMeta.count != null">（共 {{ dnsMeta.count }} 个地址）</template>
+        </n-descriptions-item>
+        <n-descriptions-item v-if="portMeta" label="连接信息">
+          <template v-if="portMeta.remoteIp">{{ portMeta.remoteIp }}:{{ portMeta.remotePort }}</template>
+          <template v-if="portMeta.localIp"> · 本机 {{ portMeta.localIp }}:{{ portMeta.localPort }}</template>
         </n-descriptions-item>
         <n-descriptions-item v-if="certDays != null" label="证书剩余">
           <n-tag
