@@ -28,6 +28,7 @@ import AppFooter from '@/components/AppFooter.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
+import { copyText } from '@/composables/useClipboard'
 import type { AppSettings, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, WebhookConfig } from '@/types'
 
 const router = useRouter()
@@ -392,12 +393,9 @@ async function removeToken() {
 
 async function copyToken() {
   if (!apiToken.value) return
-  try {
-    await navigator.clipboard.writeText(apiToken.value)
-    message.success('已复制到剪贴板')
-  } catch {
-    message.error('复制失败')
-  }
+  const ok = await copyText(apiToken.value)
+  if (ok) message.success('已复制到剪贴板')
+  else message.warning('浏览器限制自动复制，请手动选中复制')
 }
 
 async function s3Payload(): Promise<S3ConfigInput> {

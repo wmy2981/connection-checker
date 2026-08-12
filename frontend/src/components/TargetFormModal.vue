@@ -15,6 +15,7 @@ import {
   useMessage,
 } from 'naive-ui'
 
+import { copyText } from '@/composables/useClipboard'
 import type { CheckMethod, Target, TargetInput, TimeRange } from '@/types'
 
 const props = defineProps<{ show: boolean; target: Target | null }>()
@@ -98,6 +99,13 @@ function validate(): string | null {
   return null
 }
 
+async function copyId() {
+  if (!props.target) return
+  const ok = await copyText(props.target.id)
+  if (ok) message.success('目标 ID 已复制')
+  else message.warning('浏览器限制自动复制，请手动选中复制')
+}
+
 function submit() {
   const err = validate()
   if (err) {
@@ -139,7 +147,10 @@ function submit() {
     >
       <n-form label-placement="left" label-width="90">
         <n-form-item v-if="target" label="目标 ID">
-          <n-input :value="target.id" readonly />
+          <n-space align="center" style="width: 100%">
+            <n-input :value="target.id" disabled />
+            <n-button size="small" secondary @click="copyId">复制</n-button>
+          </n-space>
         </n-form-item>
         <n-form-item label="名称">
           <n-input v-model:value="form.name" placeholder="可选，便于识别" />
