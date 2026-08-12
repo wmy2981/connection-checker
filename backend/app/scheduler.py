@@ -124,26 +124,24 @@ class Scheduler:
         )
         await self.result_store.append(result)
         await self.notifier.observe(result)
+        args = (
+            target.name or target.ip,
+            target.id,
+            target.check_method,
+            result.status,
+            result.latency_ms,
+            result.message,
+        )
         if result.status == "error":
-            logger.error(
-                "Check error %s (%s) [%s] status=%s latency=%sms msg=%s",
-                target.name or target.ip,
-                target.id,
-                target.check_method,
-                result.status,
-                result.latency_ms,
-                result.message,
+            logger.error("Check error %s (%s) [%s] status=%s latency=%sms msg=%s", *args)
+        elif result.status == "timeout":
+            logger.warning(
+                "Check timed out %s (%s) [%s] status=%s latency=%sms msg=%s", *args
             )
+        elif result.status == "fail":
+            logger.warning("Check failed %s (%s) [%s] status=%s latency=%sms msg=%s", *args)
         else:
-            logger.info(
-                "Check finished %s (%s) [%s] status=%s latency=%sms msg=%s",
-                target.name or target.ip,
-                target.id,
-                target.check_method,
-                result.status,
-                result.latency_ms,
-                result.message,
-            )
+            logger.info("Check finished %s (%s) [%s] status=%s latency=%sms msg=%s", *args)
         return result
 
     async def manual_run(self, target_id: str | None = None) -> list[CheckResult]:

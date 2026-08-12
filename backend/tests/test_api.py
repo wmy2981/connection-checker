@@ -544,3 +544,27 @@ def test_check_error_logs_error_level(logged_client, fake_checker, no_scheduler,
         resp = logged_client.post("/api/v1/checks/run", json={})
     assert resp.status_code == 200
     assert any("Check error" in r.message for r in caplog.records)
+
+
+def test_check_fail_timeout_log_warning(logged_client, fake_checker, no_scheduler, caplog):
+    """检查失败/超时记录 WARN 级日志，成功保持 INFO。"""
+    import logging
+
+    logged_client.post("/api/v1/targets", json=_payload(name="warn-目标"))
+
+    for status, msg_prefix in (("fail", "Check failed"), ("timeout", "Check timed out")):
+        fake_checker(status=status, message=f"fake-{status}")
+        with caplog.at_level(logging.WARNING):
+            resp = logged_client.post("/api/v1/checks/run", json={})
+        assert resp.status_code == 200
+        assert any(
+            r.message.startswith(msg_prefix) and "warn-目标" in r.message
+            for r in caplog.records
+        )
+        caplog.clear()
+
+    # 成功不产生 WARN 日志
+    fake_checker(status="success", message="ok")
+    with caplog.at_level(logging.WARNING):
+        logged_client.post("/api/v1/checks/run", json={})
+    assert not any("Check " in r.message for r in caplog.records)
