@@ -176,6 +176,18 @@ function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
 
+// 相对时间：1 分钟内「N 秒前」、1 小时内「N 分钟前」、24 小时内「N 小时前」，
+// 超过 24 小时显示绝对时间；每 30 秒刷新一次
+const nowTs = ref(Date.now())
+let relTimer: number | null = null
+function relTime(iso: string): string {
+  const diff = Math.max(0, nowTs.value - new Date(iso).getTime())
+  if (diff < 60_000) return `${Math.floor(diff / 1000)} 秒前`
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return formatDateTime(iso)
+}
+
 // 行按状态着色（成功绿、失败红、超时橙、错误亮橙）且点击整行可打开详情
 function rowProps(r: CheckResult): Record<string, unknown> {
   return {
@@ -381,18 +393,25 @@ function connectSse() {
 onMounted(() => {
   refresh()
   connectSse()
+  relTimer = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 30_000)
 })
 
 onUnmounted(() => {
   es?.close()
+  if (relTimer != null) {
+    window.clearInterval(relTimer)
+    relTimer = null
+  }
 })
 
 const columns: DataTableColumns<CheckResult> = [
   {
     title: '时间',
     key: 'checked_at',
-    width: 170,
-    render: (r) => formatTime(r.checked_at),
+    width: 120,
+    render: (r) => h('span', { title: formatTime(r.checked_at) }, relTime(r.checked_at)),
   },
   {
     title: '目标',
