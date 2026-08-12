@@ -462,6 +462,7 @@ async function clearS3Credentials() {
     // 传空字符串显式清除已保存凭据（null 语义是不修改）
     const payload = await s3Payload()
     s3.value = await api.updateS3Config({ ...payload, access_id: '', access_key: '' })
+    s3Credentials.value = { access_id: '', access_key: '' }
     message.success('S3 凭据已清除，S3 功能停用')
   } catch (e) {
     message.error(errText(e))

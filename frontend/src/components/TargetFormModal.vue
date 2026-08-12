@@ -243,14 +243,28 @@ function submit() {
             <n-select v-model:value="form.scheme" :options="schemeOptions" />
           </n-form-item>
           <n-form-item label="端口">
-            <n-input-number
-              v-model:value="form.port"
-              :min="1"
-              :max="65535"
-              :show-button="false"
-              style="width: 100%"
-              placeholder="留空用协议默认（80/443）"
-            />
+            <n-space vertical style="width: 100%">
+              <n-input-number
+                v-model:value="form.port"
+                :min="1"
+                :max="65535"
+                :show-button="false"
+                style="width: 100%"
+                placeholder="留空用协议默认（80/443）"
+              />
+              <n-space :size="4" wrap>
+                <n-button
+                  v-for="p in portOptions"
+                  :key="p"
+                  size="tiny"
+                  secondary
+                  :type="form.port === p ? 'primary' : 'default'"
+                  @click="form.port = p"
+                >
+                  {{ p }}
+                </n-button>
+              </n-space>
+            </n-space>
           </n-form-item>
           <n-form-item label="路径">
             <n-input v-model:value="form.url_path" placeholder="/" />
