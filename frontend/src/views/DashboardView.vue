@@ -112,6 +112,11 @@ function formatTime(iso: string): string {
   return formatDateTime(iso)
 }
 
+// 行按状态着色：成功绿、失败红、超时橙、错误亮橙（低透明度底色，深浅主题均适用）
+function rowProps(r: CheckResult): Record<string, unknown> {
+  return { class: `row-${r.status}` }
+}
+
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败'
 }
@@ -458,6 +463,7 @@ const columns: DataTableColumns<CheckResult> = [
                 :data="results"
                 :loading="loading"
                 :row-key="(r: CheckResult) => r.id"
+                :row-props="rowProps"
                 :max-height="520"
                 size="small"
                 single-line
@@ -597,6 +603,18 @@ const columns: DataTableColumns<CheckResult> = [
 }
 .table {
   margin-top: 14px;
+}
+.table :deep(.row-success) {
+  background: rgba(12, 163, 12, 0.05);
+}
+.table :deep(.row-fail) {
+  background: rgba(208, 59, 59, 0.08);
+}
+.table :deep(.row-timeout) {
+  background: rgba(250, 178, 25, 0.06);
+}
+.table :deep(.row-error) {
+  background: rgba(236, 131, 90, 0.07);
 }
 .cell-name {
   font-weight: 600;
