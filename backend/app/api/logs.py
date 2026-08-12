@@ -6,6 +6,7 @@
 traceback 等续行（不以时间戳开头）并入上一条的 message。
 """
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -143,15 +144,26 @@ def _filtered(
         yield entry
 
 
+# 来源枚举 TTL 缓存：避免每次打开日志弹窗都全量解析历史文件（来源变化不频繁）
+_source_cache: tuple[float, list[str]] | None = None
+SOURCE_CACHE_TTL = 30.0
+
+
 @router.get("/sources")
 async def log_sources(request: Request) -> dict:
     """日志中出现过的来源（文件名或模块名，去重排序），供前端筛选下拉。"""
+    global _source_cache
+    now = time.monotonic()
+    if _source_cache is not None and now - _source_cache[0] < SOURCE_CACHE_TTL:
+        return {"sources": _source_cache[1]}
     sources: set[str] = set()
     for entry in _entries(request):
         origin = entry["source"] or entry["name"]
         # source 形如 scheduler.py:72，取文件名部分
         sources.add(origin.split(":", 1)[0])
-    return {"sources": sorted(sources)}
+    result = sorted(sources)
+    _source_cache = (now, result)
+    return {"sources": result}
 
 
 @router.get("")
