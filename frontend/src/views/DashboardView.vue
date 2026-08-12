@@ -127,6 +127,12 @@ function uptimeClass(pct: number): string {
   return 'up-bad'
 }
 
+// 点击目标卡可用率：趋势图切换到该目标并放大到 7 天视图
+function focusTrend(targetId: string) {
+  trendTargetId.value = targetId
+  if (trendUnit.value === 'hour') trendUnit.value = 'day'
+}
+
 const detail = ref<CheckResult | null>(null)
 const showDetail = ref(false)
 
@@ -577,7 +583,8 @@ const columns: DataTableColumns<CheckResult> = [
                   v-if="t.uptime_pct != null"
                   class="uptime"
                   :class="uptimeClass(t.uptime_pct)"
-                  :title="`近 24 小时 ${t.uptime_total} 次检查的可用率`"
+                  :title="`近 24 小时 ${t.uptime_total} 次检查的可用率；点击查看该目标 7 天趋势`"
+                  @click.stop="focusTrend(t.target_id)"
                 >
                   24h {{ t.uptime_pct }}%
                 </span>
@@ -873,6 +880,7 @@ const columns: DataTableColumns<CheckResult> = [
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+  cursor: pointer;
 }
 .up-good {
   color: #0ca30c;
