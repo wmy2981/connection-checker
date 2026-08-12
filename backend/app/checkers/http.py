@@ -79,12 +79,21 @@ class HttpChecker(BaseChecker):
                 resp = await client.send(req, stream=True)
                 t_headers = time.monotonic()
                 body = bytearray()
+                truncated = False
                 async for chunk in resp.aiter_bytes():
                     body.extend(chunk)
                     if len(body) >= BODY_READ_LIMIT:
+                        truncated = True
                         break
                 t_body = time.monotonic()
                 await resp.aclose()
+                if truncated:
+                    logger.debug(
+                        "HTTP %s: body read truncated at %d bytes (content-length=%s)",
+                        url,
+                        len(body),
+                        resp.headers.get("content-length", "unknown"),
+                    )
                 return resp, bytes(body), t_headers, t_body
 
         try:

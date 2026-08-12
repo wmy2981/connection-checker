@@ -35,7 +35,14 @@ async def get_webhook(request: Request) -> WebhookConfig:
 
 @router.put("/webhook")
 async def update_webhook(request: Request, payload: WebhookConfig) -> WebhookConfig:
-    return await _get_config_store(request).update_webhook_config(payload)
+    saved = await _get_config_store(request).update_webhook_config(payload)
+    logger.info(
+        "Webhook config updated: enabled=%s url_set=%s fail_threshold=%d",
+        saved.enabled,
+        bool(saved.url),
+        saved.fail_threshold,
+    )
+    return saved
 
 
 @router.get("/app")
@@ -72,6 +79,15 @@ async def update_app_settings(request: Request, payload: AppSettings) -> AppSett
     saved = await store.update_app_settings(payload)
     # 结果保留上限立即生效并裁剪超出部分
     request.app.state.result_store.resize(saved.result_max_records)
+    logger.info(
+        "App settings updated: storage_mode=%s log_level=%s cleanup_mode=%s "
+        "result_max_records=%d stats_window=%d",
+        saved.storage_mode,
+        saved.log_level,
+        saved.log_cleanup_mode,
+        saved.result_max_records,
+        saved.stats_window,
+    )
     return saved
 
 
