@@ -541,6 +541,7 @@ const columns: DataTableColumns<CheckResult> = [
     key: 'message',
     minWidth: 220,
     ellipsis: { tooltip: true },
+    render: (r) => r.message || '-',
   },
   {
     title: '操作',

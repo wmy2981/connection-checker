@@ -182,7 +182,7 @@ function submit() {
   >
     <n-card
       style="width: 560px; max-width: 94vw"
-      :title="target ? '编辑目标' : '新增目标'"
+      :title="target ? `编辑目标：${target.name || target.ip}` : '新增目标'"
       :bordered="false"
       size="huge"
       role="dialog"
