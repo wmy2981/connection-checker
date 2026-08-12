@@ -69,6 +69,15 @@ const intervalOptions = [
 const portOptions = [80, 443, 22, 8080, 3306, 5432]
 const timeoutOptions = [1, 3, 5, 10]
 
+// 常用期望状态码快捷选择（空值 = 用默认 200-399）
+const codeOptions = [
+  { label: '200', value: '200' },
+  { label: '200,204', value: '200,204' },
+  { label: '200-299', value: '200,201,202,203,204,205,206,207,208,226' },
+  { label: '301,302', value: '301,302' },
+  { label: '默认', value: '' },
+]
+
 watch(
   () => [props.show, props.target],
   async () => {
@@ -247,10 +256,24 @@ function submit() {
             <n-input v-model:value="form.url_path" placeholder="/" />
           </n-form-item>
           <n-form-item label="期望状态码">
-            <n-input
-              v-model:value="form.http_codes_text"
-              placeholder="逗号分隔，如 200,201,204；留空用默认（200-399）"
-            />
+            <n-space vertical style="width: 100%">
+              <n-input
+                v-model:value="form.http_codes_text"
+                placeholder="逗号分隔，如 200,201,204；留空用默认（200-399）"
+              />
+              <n-space :size="4" wrap>
+                <n-button
+                  v-for="opt in codeOptions"
+                  :key="opt.label"
+                  size="tiny"
+                  secondary
+                  :type="form.http_codes_text === opt.value ? 'primary' : 'default'"
+                  @click="form.http_codes_text = opt.value"
+                >
+                  {{ opt.label }}
+                </n-button>
+              </n-space>
+            </n-space>
           </n-form-item>
         </template>
 
