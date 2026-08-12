@@ -775,7 +775,7 @@ const columns: DataTableColumns<CheckResult> = [
                 single-line
               />
               <div class="pager">
-                <span class="pager-info">共 {{ total }} 条</span>
+                <span class="pager-info">共 {{ total.toLocaleString() }} 条</span>
                 <n-pagination
                   v-model:page="page"
                   :item-count="total"

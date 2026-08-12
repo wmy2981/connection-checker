@@ -1040,7 +1040,7 @@ const columns: DataTableColumns<Target> = [
         size="small"
       />
       <n-space align="center" justify="space-between" :size="12">
-        <span class="hint">共 {{ logData.total }} 条；时间为服务器本地时区</span>
+        <span class="hint">共 {{ logData.total.toLocaleString() }} 条；时间为服务器本地时区</span>
         <n-pagination
           v-model:page="logPage"
           :page-count="logData.pages || 1"
