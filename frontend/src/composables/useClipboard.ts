@@ -11,17 +11,21 @@ export async function copyText(text: string): Promise<boolean> {
     }
   }
   // 方案 2：隐藏 textarea + execCommand（传统 http 环境可用）
+  // 注意：textarea 必须「可渲染但移出视口」——opacity:0 / display:none 会让 Chrome 的
+  // execCommand('copy') 返回 true 但实际复制空或旧选区（2026-08 线上 bug）；
+  // 移出视口 + select + setSelectionRange 确保选区真实存在。
   try {
     const ta = document.createElement('textarea')
     ta.value = text
     ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.top = '-9999px'
-    ta.style.opacity = '0'
+    ta.style.position = 'absolute'
+    ta.style.left = '-9999px'
+    ta.style.top = '0'
     document.body.appendChild(ta)
     const selection = document.getSelection()
     const prevRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
     ta.select()
+    ta.setSelectionRange(0, text.length)
     const ok = document.execCommand('copy')
     document.body.removeChild(ta)
     if (prevRange && selection) {
