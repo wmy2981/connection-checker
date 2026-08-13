@@ -26,11 +26,12 @@ import type { DataTableColumns } from 'naive-ui'
 import { api } from '@/api'
 import AppFooter from '@/components/AppFooter.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
+import DataImportDialog from '@/components/DataImportDialog.vue'
 import TargetFormModal from '@/components/TargetFormModal.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { copyText } from '@/composables/useClipboard'
 import { formatDateTime } from '@/composables/useAppTime'
-import type { AppSettings, CheckResult, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
+import type { AppSettings, BackupInfo, CheckResult, LogEntry, S3Config, S3ConfigInput, Target, TargetInput, TargetStatus, WebhookConfig } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -98,6 +99,199 @@ const apiToken = ref<string | null>(null)
 
 const brandIconInput = ref('')
 const brandSaving = ref(false)
+
+// --- 数据管理（导入/导出/备份） ---
+const showImport = ref(false)
+const showRestore = ref(false)
+const restoringBackup = ref<string | null>(null)
+const dataBusy = ref(false)
+const showBackups = ref(false)
+const backups = ref<BackupInfo[]>([])
+const backupsLoading = ref(false)
+const backupCreating = ref(false)
+const backupDeleting = ref<string | null>(null)
+
+async function exportData() {
+  try {
+    await api.exportData()
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
+async function onImportConfirm(payload: {
+  file?: File
+  include_records: boolean
+  include_targets: boolean
+  include_settings: boolean
+}) {
+  if (!payload.file) return
+  dataBusy.value = true
+  try {
+    const r = await api.importData(
+      payload.file,
+      payload.include_records,
+      payload.include_targets,
+      payload.include_settings,
+    )
+    message.success(
+      `导入完成：记录 ${r.records} 条、目标 ${r.targets} 个${r.settings ? '、设置' : ''}；导入前已自动备份（${r.backup}）`,
+    )
+    showImport.value = false
+    refreshSettings()
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    dataBusy.value = false
+  }
+}
+
+async function onRestoreConfirm(payload: {
+  file?: File
+  include_records: boolean
+  include_targets: boolean
+  include_settings: boolean
+}) {
+  const name = restoringBackup.value
+  if (!name) return
+  dataBusy.value = true
+  try {
+    const r = await api.restoreBackup(name, {
+      include_records: payload.include_records,
+      include_targets: payload.include_targets,
+      include_settings: payload.include_settings,
+    })
+    message.success(
+      `恢复完成：记录 ${r.records} 条、目标 ${r.targets} 个${r.settings ? '、设置' : ''}；恢复前已自动备份（${r.backup}）`,
+    )
+    showRestore.value = false
+    refreshSettings()
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    dataBusy.value = false
+  }
+}
+
+// 导入/恢复改动配置后刷新页面数据（目标表格、设置、令牌等）
+function refreshSettings() {
+  load()
+  loadAppSettings()
+  loadWebhook()
+  loadS3()
+  loadApiToken()
+}
+
+async function openBackups() {
+  showBackups.value = true
+  await loadBackups()
+}
+
+async function loadBackups() {
+  backupsLoading.value = true
+  try {
+    backups.value = (await api.listBackups()).backups
+  } catch {
+    /* 401 由 client 处理 */
+  } finally {
+    backupsLoading.value = false
+  }
+}
+
+async function createBackup() {
+  backupCreating.value = true
+  try {
+    const r = await api.createBackup()
+    message.success(`备份已创建：${r.name}`)
+    await loadBackups()
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    backupCreating.value = false
+  }
+}
+
+async function downloadBackup(name: string) {
+  try {
+    await api.downloadBackup(name)
+  } catch (e) {
+    message.error(errText(e))
+  }
+}
+
+async function removeBackup(name: string) {
+  backupDeleting.value = name
+  try {
+    await api.deleteBackup(name)
+    message.success('备份已删除')
+    await loadBackups()
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    backupDeleting.value = null
+  }
+}
+
+const backupColumns = computed<DataTableColumns<BackupInfo>>(() => [
+  { title: '文件名', key: 'name' },
+  {
+    title: '大小',
+    key: 'size',
+    render: (r) => `${(r.size / 1024).toFixed(1)} KB`,
+  },
+  {
+    title: '创建时间',
+    key: 'created_at',
+    render: (r) => formatDateTime(r.created_at),
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    render: (r) =>
+      h(NSpace, { size: 4 }, {
+        default: () => [
+          h(
+            NButton,
+            {
+              size: 'tiny',
+              secondary: true,
+              onClick: () => {
+                restoringBackup.value = r.name
+                showRestore.value = true
+              },
+            },
+            { default: () => '恢复' },
+          ),
+          h(
+            NButton,
+            { size: 'tiny', secondary: true, onClick: () => downloadBackup(r.name) },
+            { default: () => '下载' },
+          ),
+          h(
+            NPopconfirm,
+            {
+              positiveButtonProps: { type: 'error' },
+              onPositiveClick: () => removeBackup(r.name),
+            },
+            {
+              trigger: () =>
+                h(
+                  NButton,
+                  {
+                    size: 'tiny',
+                    type: 'error',
+                    secondary: true,
+                    loading: backupDeleting.value === r.name,
+                  },
+                  { default: () => '删除' },
+                ),
+              default: () => `确认删除备份 ${r.name}？`,
+            },
+          ),
+        ],
+      }),
+  },
+])
 const iconFileInput = ref<HTMLInputElement | null>(null)
 // 预览加载失败（非法 URL）时回退默认图标
 const previewBroken = ref(false)
@@ -1065,11 +1259,68 @@ const columns: DataTableColumns<Target> = [
           </n-space>
           </n-card>
 
+          <n-card title="数据管理" size="small">
+            <n-space vertical size="large">
+              <n-space align="center" :size="12" wrap>
+                <n-button secondary @click="exportData">导出数据</n-button>
+                <n-button secondary @click="showImport = true">导入数据</n-button>
+                <n-button secondary @click="openBackups">备份管理</n-button>
+              </n-space>
+              <span class="hint">
+                导出/备份打包 config、检查记录与日志（不含密钥）；导入/恢复按内容勾选（可多选），
+                操作前自动备份当前数据
+              </span>
+            </n-space>
+          </n-card>
+
         </n-space>
       </div>
     </n-layout-content>
     <AppFooter />
   </n-layout>
+
+  <DataImportDialog
+    :show="showImport"
+    mode="import"
+    :loading="dataBusy"
+    @update:show="(v: boolean) => (showImport = v)"
+    @confirm="onImportConfirm"
+  />
+  <DataImportDialog
+    :show="showRestore"
+    mode="restore"
+    :backup-name="restoringBackup"
+    :loading="dataBusy"
+    @update:show="(v: boolean) => (showRestore = v)"
+    @confirm="onRestoreConfirm"
+  />
+  <n-modal v-model:show="showBackups">
+    <n-card
+      style="width: 640px; max-width: 94vw"
+      title="备份管理"
+      :bordered="false"
+      size="huge"
+      role="dialog"
+      aria-modal="true"
+    >
+      <n-space vertical size="large">
+        <n-space justify="space-between" align="center" wrap>
+          <span class="hint">备份存于服务器 data/backups/，全部保留、手动删除</span>
+          <n-button size="small" type="primary" :loading="backupCreating" @click="createBackup">
+            创建备份
+          </n-button>
+        </n-space>
+        <n-empty v-if="!backupsLoading && !backups.length" description="暂无备份" />
+        <n-data-table
+          v-else
+          :columns="backupColumns"
+          :data="backups"
+          :loading="backupsLoading"
+          size="small"
+        />
+      </n-space>
+    </n-card>
+  </n-modal>
 
   <TargetFormModal
     v-model:show="modalShow"

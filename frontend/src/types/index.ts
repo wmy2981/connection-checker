@@ -171,6 +171,19 @@ export interface ApiTokenInfo {
   token: string | null
 }
 
+export interface BackupInfo {
+  name: string
+  size: number
+  created_at: string
+}
+
+export interface ImportStats {
+  records: number
+  targets: number
+  settings: boolean
+  backup: string
+}
+
 export interface TrendData {
   hours: number
   target_id: string | null

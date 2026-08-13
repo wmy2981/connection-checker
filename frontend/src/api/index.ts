@@ -1,7 +1,9 @@
 import type {
   ApiTokenInfo,
   AppSettings,
+  BackupInfo,
   CheckResult,
+  ImportStats,
   LogEntry,
   LogQueryParams,
   Paginated,
@@ -59,6 +61,50 @@ async function downloadExport(
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new ApiError(408, '导出超时，请缩小筛选范围后重试')
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// 导入上传超时（毫秒）：zip 数据包可能较大，比导出更宽松
+const IMPORT_TIMEOUT_MS = 120_000
+
+// multipart 上传导入 zip：不走 request()（其强制 JSON Content-Type），
+// 须带 X-Requested-With 头（后端 CSRF JSON 检查的唯一例外条件）
+async function uploadImport(
+  file: File,
+  includeRecords: boolean,
+  includeTargets: boolean,
+  includeSettings: boolean,
+): Promise<ImportStats> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('include_records', String(includeRecords))
+  form.append('include_targets', String(includeTargets))
+  form.append('include_settings', String(includeSettings))
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), IMPORT_TIMEOUT_MS)
+  try {
+    const res = await fetch('/api/v1/data/import', {
+      method: 'POST',
+      body: form,
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      signal: controller.signal,
+    })
+    if (res.status === 401) {
+      window.location.href = '/login'
+      throw new ApiError(401, '未授权')
+    }
+    const data = (await res.json().catch(() => null)) as ImportStats | null
+    if (!res.ok) {
+      throw new ApiError(res.status, (data as { detail?: string } | null)?.detail ?? res.statusText)
+    }
+    return data as ImportStats
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new ApiError(408, '导入超时，请稍后重试')
     }
     throw e
   } finally {
@@ -129,4 +175,35 @@ export const api = {
   exportLogs: (params: LogQueryParams) =>
     downloadExport('/api/v1/logs/export', params as ResultFilterParams, 'logs.log'),
   logSources: () => request<{ sources: string[] }>('/logs/sources'),
+
+  // 数据导入导出与备份
+  exportData: () => downloadExport('/api/v1/data/export', {}, 'connection-checker-data.zip'),
+  importData: (
+    file: File,
+    includeRecords: boolean,
+    includeTargets: boolean,
+    includeSettings: boolean,
+  ) => uploadImport(file, includeRecords, includeTargets, includeSettings),
+  listBackups: () => request<{ backups: BackupInfo[] }>('/data/backups'),
+  createBackup: () =>
+    request<{ ok: boolean; name: string; size: number }>('/data/backups', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  restoreBackup: (
+    name: string,
+    include: {
+      include_records: boolean
+      include_targets: boolean
+      include_settings: boolean
+    },
+  ) =>
+    request<ImportStats & { ok: boolean }>(
+      `/data/backups/${encodeURIComponent(name)}/restore`,
+      { method: 'POST', body: JSON.stringify(include) },
+    ),
+  downloadBackup: (name: string) =>
+    downloadExport(`/api/v1/data/backups/${encodeURIComponent(name)}/download`, {}, name),
+  deleteBackup: (name: string) =>
+    request<void>(`/data/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 }
