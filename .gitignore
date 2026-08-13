@@ -40,3 +40,6 @@ Thumbs.db
 .claude/
 .agents/
 CLAUDE.local.md
+
+# release workflow 临时生成
+.release-notes.md
