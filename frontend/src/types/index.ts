@@ -166,6 +166,11 @@ export interface TrendBucket {
   avg_latency_ms: number | null
 }
 
+export interface ApiTokenInfo {
+  has_token: boolean
+  token: string | null
+}
+
 export interface TrendData {
   hours: number
   target_id: string | null

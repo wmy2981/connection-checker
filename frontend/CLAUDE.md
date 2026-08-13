@@ -50,6 +50,6 @@ Vue 3 + TypeScript + Vite 前端，UI 组件库 naive-ui（2.40），图标 @vic
 - 新增页面须在 `router/index.ts` 注册并置于登录守卫后
 - 改后端接口/模型时，`types/index.ts` 与 `api/index.ts` 须同步更新
 - 图表用手绘 SVG（TrendChart.vue 模式），不引入图表库
-- **API 令牌明文只在生成后临时展示**：`getApiToken` 返回 `{ has_token }`（后端不回读明文），`apiToken` 状态仅在 `generateApiToken` 后非空；删除按钮以「已设置」状态（`apiTokenSet`）控制
+- **API 令牌明文回显**：`getApiToken` 返回 `{ has_token, token }`（后端回读明文），配置页默认掩码显示（`n-input type="password" show-password-on="click"` 眼睛图标切换）；删除按钮以「已设置」状态（`apiTokenSet`）控制
 - 请求超时在 `api/client.ts`（15s）与 `downloadExport`（60s）：timer 在 finally 清理，**必须覆盖响应体读取阶段**（fetch resolve 后不清 timer，否则停滞流挂死界面）
 - 移动端适配基线（≤640px）：目标卡两行布局（主行 + 元数据行可换行）、n-card header 窄屏 `flex-wrap` 标题独占一行、表格不固定列；用 `:deep(.n-card-header__main)` 等覆盖 naive 内部结构

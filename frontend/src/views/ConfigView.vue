@@ -431,12 +431,14 @@ async function loadS3() {
   }
 }
 
-// 令牌是否已设置（后端不回读明文；明文只在生成后临时展示）
+// 令牌明文（后端回读明文）；默认掩码显示，眼睛图标切换明文
 const apiTokenSet = ref(false)
 
 async function loadApiToken() {
   try {
-    apiTokenSet.value = (await api.getApiToken()).has_token
+    const info = await api.getApiToken()
+    apiToken.value = info.token
+    apiTokenSet.value = info.has_token
   } catch {
     /* 401 由 client 处理 */
   }
@@ -998,8 +1000,14 @@ const columns: DataTableColumns<Target> = [
           <n-space vertical size="large">
             <n-space align="center" :size="12" wrap>
               <span class="label">令牌</span>
-              <n-input v-if="apiToken" :value="apiToken" readonly style="width: 340px" />
-              <span v-else-if="apiTokenSet" class="hint">令牌已设置（出于安全不再明文显示；需复制请重新生成）</span>
+              <n-input
+                v-if="apiToken"
+                :value="apiToken"
+                readonly
+                type="password"
+                show-password-on="click"
+                style="width: 340px"
+              />
               <span v-else class="hint">未设置 API 令牌，外部 API 调用将被拒绝</span>
               <n-button v-if="apiToken" size="small" @click="copyToken">复制</n-button>
               <n-popconfirm v-if="apiTokenSet" :positive-button-props="{ type: 'error' }" @positive-click="removeToken">

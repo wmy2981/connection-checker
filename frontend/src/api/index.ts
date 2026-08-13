@@ -1,4 +1,5 @@
 import type {
+  ApiTokenInfo,
   AppSettings,
   CheckResult,
   LogEntry,
@@ -116,7 +117,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(cfg),
     }),
-  getApiToken: () => request<{ has_token: boolean }>('/settings/api-token'),
+  getApiToken: () => request<ApiTokenInfo>('/settings/api-token'),
   generateApiToken: () =>
     request<{ token: string }>('/settings/api-token/generate', {
       method: 'POST',

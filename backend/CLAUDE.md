@@ -48,7 +48,7 @@ FastAPI 单体后端（`requires-python >=3.10`），包位于 `backend/app`（s
 
 ### 数据与存储约定
 
-- config.json 原子写（`atomic_write`：临时文件 + os.replace）；密钥/凭据存 secrets.json，**接口不回读明文**（含 GET /settings/api-token 只返回 has_token，明文仅在生成时返回一次）
+- config.json 原子写（`atomic_write`：临时文件 + os.replace）；密钥/凭据存 secrets.json，**接口默认不回读明文**；唯一例外是 GET /settings/api-token 回读明文（用户要求配置页回显展示，凭 require_auth 保护）
 - ResultStore：本地文件追加写 + 超限整文件重写（resize 是同步方法）；`storage_mode` 与 S3 配置变更由 scheduler watchdog 调 `set_s3_mode` 热更新
 - S3 对象按天（`datapath/results/YYYY-MM-DD.jsonl`）永久保留：合并去重后整对象上传，写失败 ERROR 日志并降级本地（结果不丢）；ResultStore 维护待补传日期集合（`_dirty_dates`）：启动 / `set_s3_mode` 新启用 S3 时本地全部历史按天补传（`_schedule_backfill` 后台任务，不阻塞启动），append 只产生当天日期，同步失败的日期保留待下次 append 自动重试（跨天失败自愈）
 - **S3 同步必须在 append 临界区外执行**（`_sync_s3_async` 持锁内快照、锁外 to_thread）：慢/故障 S3 不得冻结读写接口；**拉取既有对象失败时跳过该日期绝不覆盖**（防 S3 历史被内存子集覆盖）；单日期失败不中断其余日期；`_sync_to_s3` 返回 bool 表示是否成功

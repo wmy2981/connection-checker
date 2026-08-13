@@ -287,7 +287,7 @@ S3 配置存于 `config.json` 的 `s3` 节；凭据（Access ID / Access Key）�
 
 ### GET /settings/api-token
 
-返回当前 Token 明文（供配置页展示/复制）。未设置：`{ "token": null }`。
+返回当前 Token 明文（供配置页掩码展示/复制；密钥类接口中唯一回读明文的例外，凭登录保护）。已设置：`{ "has_token": true, "token": "..." }`；未设置：`{ "has_token": false, "token": null }`。
 
 ### POST /settings/api-token/generate
 
