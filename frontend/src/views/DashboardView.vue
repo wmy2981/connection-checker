@@ -426,10 +426,10 @@ async function logout() {
   router.push('/login')
 }
 
-async function copyDetailExtra() {
+async function copyDetailJson() {
   if (!detail.value) return
-  const ok = await copyText(JSON.stringify(detail.value.extra, null, 2))
-  if (ok) message.success('附加数据已复制')
+  const ok = await copyText(JSON.stringify(detail.value, null, 2))
+  if (ok) message.success('检查详情已复制')
   else message.warning('浏览器限制自动复制，请手动选中复制')
 }
 
@@ -855,14 +855,12 @@ const columns: DataTableColumns<CheckResult> = [
         </n-descriptions-item>
         <n-descriptions-item label="信息">{{ detail.message }}</n-descriptions-item>
         <n-descriptions-item label="附加数据">
-          <div class="extra-wrap">
-            <n-button size="tiny" secondary class="extra-copy" @click="copyDetailExtra">复制 JSON</n-button>
-            <pre class="extra">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
-          </div>
+          <pre class="extra">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
         </n-descriptions-item>
       </n-descriptions>
       <template #footer>
         <n-space justify="end">
+          <n-button size="small" secondary @click="copyDetailJson">复制 JSON</n-button>
           <n-button @click="showDetail = false">关闭</n-button>
         </n-space>
       </template>
@@ -1057,14 +1055,6 @@ const columns: DataTableColumns<CheckResult> = [
 .pager-info {
   color: var(--cc-text-3);
   font-size: 13px;
-}
-.extra-wrap {
-  position: relative;
-}
-.extra-copy {
-  position: absolute;
-  top: -28px;
-  right: 0;
 }
 .extra {
   margin: 0;
