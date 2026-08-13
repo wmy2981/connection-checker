@@ -70,7 +70,7 @@ data/          运行时数据（config.json / secrets.json / results.jsonl / lo
 
 ### API 与安全
 
-- POST/PUT/PATCH 强制要求 `Content-Type: application/json`（CSRF 纵深防御，否则返回 415）
+- POST/PUT/PATCH 强制要求 `Content-Type: application/json`（CSRF 纵深防御，否则返回 415）；唯一例外是数据导入的 multipart 上传（须带 `X-Requested-With: XMLHttpRequest` 头，跨站表单无法携带自定义头，CSRF 防御仍成立）
 - 认证双方式：会话 Cookie（HttpOnly `session`，浏览器）或 API Token（`Authorization: Bearer <token>`，外部调用；存 secrets.json，重新生成后旧 token 失效）；**有效 cookie 会话优先于 Bearer 头**（残留/轮换后的失效 token 不得使有效会话 401）
 - **密钥类数据接口不回读明文**：`GET /settings/api-token` 只返回 `has_token`（明文仅在生成时返回一次，前端生成后临时展示）；`GET /settings/s3` 只返回 `has_credentials`（见「存储约定」）
 - `PUT /settings/s3` 部分更新语义：未提供的字段保留已保存配置（凭据字段留空/为 null = 不修改）
@@ -83,3 +83,4 @@ data/          运行时数据（config.json / secrets.json / results.jsonl / lo
 - `config.json`：顶层 `version` / `last_updated` / `check_targets` / `webhook` / `app` / `s3` 节，原子写（临时文件 + os.replace），watchdog 热加载
 - `secrets.json`：密钥类数据（jwt_secret、access_code_hash、S3 凭据、api_token），**明文凭据不落 config.json、接口不回读**（GET /settings/s3 只返回 has_credentials、GET /settings/api-token 只返回 has_token）
 - `results.jsonl`：检查记录追加写、超上限整文件重写；存储模式 `app.storage_mode`（local/s3/both，S3 按天对象永久保留、写失败降级本地）；启用 S3（启动或切换存储模式）时本地全部历史按天补传（**后台任务执行，不阻塞启动**），同步失败的日期保留待下次 append 自动重试（跨天失败不丢数据）。S3 同步语义：**在 append 临界区外执行**（慢/故障 S3 不冻结读写接口）、**拉取既有对象失败时跳过该日期绝不覆盖**（防 S3 历史被内存子集覆盖）、单日期失败不中断其余日期
+- `backups/`：导入/恢复前自动备份 + 手动备份的 zip（内容同导出：config+results+logs+manifest，**不含密钥**），全部保留、手动删除；导入语义=记录追加（id 去重）/目标按 id 合并/设置逐键合并；端点见 `docs/api.md`「数据导入导出与备份」

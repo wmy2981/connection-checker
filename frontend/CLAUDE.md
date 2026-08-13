@@ -8,10 +8,11 @@ Vue 3 + TypeScript + Vite 前端，UI 组件库 naive-ui（2.40），图标 @vic
 | --- | --- |
 | `views/LoginView.vue` | 登录页（访问码） |
 | `views/DashboardView.vue` | 仪表盘：统计卡、目标状态卡、趋势图、检查记录（筛选/导出/分页）、SSE 实时刷新 |
-| `views/ConfigView.vue` | 配置页：目标管理表格、全局检查设置、告警、S3 配置、API 访问令牌、品牌图标、日志管理弹窗 |
+| `views/ConfigView.vue` | 配置页：目标管理表格、全局检查设置、告警、S3 配置、API 访问令牌、品牌图标、数据管理（导入/导出/备份）、日志管理弹窗 |
 | `components/StatsCards.vue` | 统计卡（成功/失败/超时/错误 + 百分比，近 N 次） |
 | `components/TrendChart.vue` | 手绘 SVG 成功率趋势折线 |
 | `components/TargetFormModal.vue` | 新增/编辑目标弹窗（含目标 ID 只读展示 + 复制按钮） |
+| `components/DataImportDialog.vue` | 数据导入/恢复弹窗（文件选择 + 内容勾选，双模式，供数据管理卡片复用） |
 | `components/AppFooter.vue` | 页脚：API 文档链接、版本号（/meta）、GitHub 链接 |
 | `components/BrandLogo.vue` | 品牌图标（自定义 icon，加载失败回退 favicon.svg） |
 | `components/ThemeToggle.vue` | 主题三模式切换（跟随系统/浅/深） |
@@ -52,4 +53,5 @@ Vue 3 + TypeScript + Vite 前端，UI 组件库 naive-ui（2.40），图标 @vic
 - 图表用手绘 SVG（TrendChart.vue 模式），不引入图表库
 - **API 令牌明文回显**：`getApiToken` 返回 `{ has_token, token }`（后端回读明文），配置页默认掩码显示（`n-input type="password" show-password-on="click"` 眼睛图标切换）；删除按钮以「已设置」状态（`apiTokenSet`）控制
 - 请求超时在 `api/client.ts`（15s）与 `downloadExport`（60s）：timer 在 finally 清理，**必须覆盖响应体读取阶段**（fetch resolve 后不清 timer，否则停滞流挂死界面）
+- 数据导入走 multipart 上传（`api/index.ts` 的 `uploadImport`）：fetch + FormData + **必须带 `X-Requested-With: XMLHttpRequest` 头**（后端 CSRF JSON 检查的唯一例外条件）、超时 120s；不走 `request()`（其强制 JSON Content-Type）
 - 移动端适配基线（≤640px）：目标卡两行布局（主行 + 元数据行可换行）、n-card header 窄屏 `flex-wrap` 标题独占一行、表格不固定列；用 `:deep(.n-card-header__main)` 等覆盖 naive 内部结构
