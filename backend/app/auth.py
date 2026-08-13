@@ -120,9 +120,16 @@ def require_auth(request: Request) -> None:
 
     # 带 body 的写方法要求 JSON 内容类型（CSRF 纵深防御）。DELETE 无 body，
     # 且跨源无法通过表单/预检触发，天然安全，不受此限。
+    # multipart 例外：仅数据导入端点使用（上传 zip），必须携带 X-Requested-With
+    # 自定义头——跨站表单无法携带自定义头（同源 fetch 才带），防 CSRF 同样成立。
     if request.method in ("POST", "PUT", "PATCH"):
         content_type = request.headers.get("content-type", "")
         if not content_type.startswith("application/json"):
+            if (
+                content_type.startswith("multipart/form-data")
+                and request.headers.get("x-requested-with") == "XMLHttpRequest"
+            ):
+                return
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                 detail="需 application/json",

@@ -376,6 +376,34 @@ class ResultStore:
             # S3 同步移出临界区（锁内只做本地写入），慢/故障 S3 不冻结读写接口
             await self._sync_s3_async(sync_snapshot)
 
+    async def import_records(self, results: list[CheckResult]) -> int:
+        """批量导入检查记录（数据导入/恢复用）：按 id 去重后追加、超限裁剪、
+        整文件重写；涉及的日期标记 S3 待补传（复用 append 路径自愈）。返回导入条数。"""
+        if not results:
+            return 0
+        sync_snapshot: list[CheckResult] | None = None
+        added = 0
+        dirty_dates: set[str] = set()
+        async with self._lock:
+            for r in results:
+                if r.id in self._seen_ids:
+                    continue
+                self._results.append(r)
+                self._seen_ids.add(r.id)
+                dirty_dates.add(r.checked_at.astimezone().strftime("%Y-%m-%d"))
+                added += 1
+            if added and len(self._results) > self.max_records:
+                self._trim_to_max()
+            if added:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self._persist_all()
+                if self._s3 is not None:
+                    self._dirty_dates.update(dirty_dates)
+                    sync_snapshot = list(self._results)
+        if sync_snapshot is not None:
+            await self._sync_s3_async(sync_snapshot)
+        return added
+
     def _sync_dirty(self, snapshot: list[CheckResult]) -> None:
         """把待补传日期逐个同步到 S3；单个日期失败不中断其余日期，失败日期保留重试。"""
         for date_str in sorted(self._dirty_dates):

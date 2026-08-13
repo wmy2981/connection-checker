@@ -439,3 +439,34 @@ es.addEventListener('result', (e) => {
 ```json
 { "sources": ["scheduler.py", "storage.py", "app.notifier", "uvicorn"] }
 ```
+
+## 数据导入导出与备份
+
+数据包 zip 含：`config.json`（检查目标 + 全部设置）+ `results.jsonl`（检查记录）+ `logs/*.log` + `manifest.json`（包标识，导入时校验）。**不含 secrets.json（密钥类数据永不落包）与 backups/**。导入/恢复按内容勾选（可多选）；日志不支持导入，zip 中的日志自动忽略。
+
+### GET /data/export
+
+导出数据包 zip（流式下载），文件名 `connection-checker-data-YYYYMMDD-HHMMSS.zip`。
+
+### POST /data/import
+
+导入数据包 zip。**multipart 上传，必须带 `X-Requested-With: XMLHttpRequest` 头**（CSRF JSON 检查的唯一例外）；至少勾选一项内容，否则 `422`。导入前自动备份当前数据到 `data/backups/`（备份失败则导入中止）。
+
+| 表单参数 | 语义 |
+| --- | --- |
+| `file` | zip 文件（必填） |
+| `include_records` | 检查记录：**追加**（按 id 去重，重复导入不产生重复记录） |
+| `include_targets` | 检查目标：**按 id 合并**（zip 覆盖/新增，现有未覆盖的保留） |
+| `include_settings` | 设置（app/webhook/s3 节）：**逐键合并**（zip 有的键覆盖、其余保留；旧版本包不回退新字段）；若合并后 `s3.enabled=true` 但当前无凭据（导出不含密钥）则回落禁用并记 WARN |
+
+成功 `200`：`{ "ok": true, "records": 0, "targets": 0, "settings": false, "backup": "backup-....zip" }`。包校验失败（非 zip / 缺 manifest / 标识不匹配）`422`。
+
+### 备份管理
+
+- `POST /data/backups`：创建备份（内容同导出，不含密钥）。成功 `200`：`{ "ok": true, "name": "backup-YYYYMMDD-HHMMSS.zip", "size": N }`
+- `GET /data/backups`：备份列表（新→旧）`{ "backups": [{ "name", "size", "created_at" }] }`
+- `POST /data/backups/{name}/restore`：从备份恢复。JSON body 与导入相同的三项 `include_records / include_targets / include_settings`（至少一项）；恢复前自动备份当前数据
+- `GET /data/backups/{name}/download`：下载备份 zip（备份文件保留）
+- `DELETE /data/backups/{name}`：删除备份（备份全量保留、手动删除，无自动清理）
+
+备份文件名严格匹配 `backup-YYYYMMDD-HHMMSS.zip`：不匹配 `422`，不存在 `404`。

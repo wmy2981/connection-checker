@@ -54,3 +54,4 @@ FastAPI 单体后端（`requires-python >=3.10`），包位于 `backend/app`（s
 - **S3 同步必须在 append 临界区外执行**（`_sync_s3_async` 持锁内快照、锁外 to_thread）：慢/故障 S3 不得冻结读写接口；**拉取既有对象失败时跳过该日期绝不覆盖**（防 S3 历史被内存子集覆盖）；单日期失败不中断其余日期；`_sync_to_s3` 返回 bool 表示是否成功
 - 加载（`_load`）后按 `checked_at` 排序（S3 对象返回顺序不保证时间序）；`_trim_to_max` 裁剪时同步收缩 `_seen_ids`，内存有界
 - 日志清理在 `log_cleaner.py` 独立循环，不依赖 DailyFileHandler 轮转；upload 上传成功后才删本地；delete 模式 unlink 失败（OSError）ERROR 日志并保留待下轮，不中断其余文件
+- 数据导入/导出/备份（`api/data.py` + `data_transfer.py`）：zip 含 config + results + logs + manifest，**不含 secrets.json 与 backups/**；导入语义=记录追加（id 去重）/目标按 id 合并/设置逐键合并（旧包不回退新字段），导入与恢复前自动备份；multipart 上传是 auth.py CSRF JSON 检查的唯一例外（须带 `X-Requested-With: XMLHttpRequest` 头）；备份名严格正则防路径穿越；mkstemp 的 fd 必须立即关闭（否则 Windows 上 unlink 报 PermissionError）；全流程 4 级日志（消息英文）
