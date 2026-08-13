@@ -43,7 +43,7 @@ Vue 3 + TypeScript + Vite 前端，UI 组件库 naive-ui（2.40），图标 @vic
 - **DataTable 列排序用 `sorter` 函数属性**（无 `sortable` 布尔属性）；列固定用 `fixed: 'left' | 'right'`（时间列曾固定左置，移动端挤占空间后移除）
 - **NEmpty 的 `description` 是 prop 非插槽**；弹窗卡片窄屏用 `style="width: 600px; max-width: 94vw"`
 - 主题三模式由 `useDark.ts` 管理（`cc-theme-mode` 存 localStorage，默认跟随系统），`ThemeToggle.vue` 下拉切换，所有页面共用；localStorage 访问须 try/catch（隐私模式禁用时降级）
-- 复制文本一律用 `composables/useClipboard.ts` 的 `copyText`（http 内网下 Clipboard API 不可用会自动降级），勿直接用 navigator.clipboard
+- 复制文本一律用 `composables/useClipboard.ts` 的 `copyText`（http 内网下 Clipboard API 不可用会自动降级），勿直接用 navigator.clipboard；降级分支的 textarea **必须挂在焦点元素所在的 `[role="dialog"]` 容器内**——naive-ui NModal 的 focus trap 会拉回挂到 body 的 textarea 焦点并清除选区，导致 modal 内复制静默失败（2026-08 线上 bug：id/检查数据复制失效、页面本体令牌复制正常）
 - 按钮弹窗等交互组件（NPopconfirm 等）确认按钮改红色用 `positive-button-props="{ type: 'error' }"`
 
 ### 约束
