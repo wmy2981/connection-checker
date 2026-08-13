@@ -1,18 +1,23 @@
-# connection-checker
+<p align="center">
+  <img src="frontend/public/favicon.svg" width="80" height="80" alt="connection-checker" />
+</p>
+<h1 align="center">Connection Checker</h1>
 
-自托管网络连通性监控工具。定时对目标执行 **Ping / TCP 端口 / HTTP 状态码** 检查，在 Web 仪表盘实时查看结果，支持按状态、IP、目标、时间筛选与分页，故障连续发生可推送 **Webhook 告警**。
+自托管网络连通性监控工具。定时对目标执行 **Ping / TCP 端口 / HTTP / DNS** 检查，在 Web 仪表盘实时查看结果，支持按状态、IP、目标、时间筛选与分页，故障连续发生可推送 **Webhook 告警**。
 
 后端 FastAPI + Vue 3 前端，单一 Docker 镜像部署，数据以 JSON / JSONL 文件存储，无需数据库。
 
 ## 功能特性
 
-- 三种检查方式：ICMP Ping（ping3）、TCP 端口连通、HTTP(S) 状态码（httpx）
-- 每个目标独立检查间隔、独立时间窗口（支持跨午夜，如 `22:00–06:00`）、独立超时
-- 异步调度：asyncio 每目标一个任务，配置变更即时生效，可手动「立即检查」
-- 实时结果：SSE 推送，仪表盘秒级更新，无需轮询
-- 结果查询：状态 / IP（支持 `*` 通配符）/ 目标名称 / 日期 / 时间段筛选 + 服务端分页，JSONL 追加存储（默认保留最近 50000 条）
-- 成功率趋势：仪表盘展示近 24 小时每小时成功率与平均延迟
-- 告警通知：目标连续失败达阈值触发 Webhook，恢复时通知；地址与阈值在「配置管理」页设置（存于 `config.json`），兼容 Gotify / 企业微信 / 自建服务
+- 四种检查方式：ICMP Ping（ping3，发包并发执行）、TCP 端口连通、HTTP(S) 状态码（httpx，响应体读取上限 1MB）、DNS 解析（getaddrinfo）
+- 每个目标独立检查间隔（表单提供常用快捷值）、独立时间窗口（支持跨午夜，如 `22:00–06:00`）、独立超时
+- 异步调度：asyncio 每目标一个任务，配置变更即时生效，可手动「立即检查」（全部目标并发执行、完成后结果汇总）
+- 实时结果：SSE 推送（连接状态指示），目标卡片即时更新，统计/趋势节流刷新，无需轮询
+- 结果查询：状态 / 检查方式 / IP（支持 `*` 通配符）/ 目标名称 / 时间范围筛选 + 服务端分页，JSONL 追加存储（默认保留最近 50000 条）；表格支持按状态着色、行点击查看详情、相对时间显示
+- 成功率趋势：仪表盘展示近 24 小时（按小时）或近 7 天（按天）成功率与平均延迟，可筛选单个目标；每个目标卡片展示近 24 小时可用率与当前连续失败次数
+- 检查详情：四种方式的指标友好展示（ping 丢包/抖动、HTTP 状态码/TTFB/重定向、TLS 证书版本/颁发者/剩余天数、DNS 地址列表、端口连接信息），附加数据可一键复制 JSON
+- 目标管理：配置页实时状态列、一键复制目标、「最近状态」hover 查看检查时间
+- 告警通知：目标连续失败达阈值触发 Webhook，恢复时通知（含连续失败次数）；地址与阈值在「配置管理」页设置（存于 `config.json`），兼容 Gotify / 企业微信 / 自建服务
 - 认证：单访问码 + argon2 哈希存储，JWT 写入 HttpOnly Cookie，CSRF 纵深防御
 - 开箱即用：单一镜像 + 挂载数据卷即可运行
 
@@ -177,15 +182,15 @@ Gotify 可直接使用；企业微信等可在入口处做格式转换。
 
 ## CI/CD 与发行
 
-GitHub Actions 由三个工作流组成（`.github/workflows/`）：
+GitHub Actions 由三个工作流组成（`.github/workflows/`），均带 `concurrency: cancel-in-progress`：
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
 | `ci.yml` | main / dev 推送或 PR | ruff + pytest + 前端构建 |
-| `build.yml` | main / dev 推送 | buildx 构建 amd64 / arm64 镜像推至 GHCR（main → `latest` + `sha`，dev → `dev` + `sha`） |
-| `release.yml` | main 推送 | python-semantic-release 依据 Conventional Commits 打 `vX.Y.Z` tag 并发布 **GitHub Release** |
+| `build.yml` | main / dev 推送 | buildx 构建 amd64 / arm64 镜像推至 GHCR（main → `vX.Y.Z` + `latest`，dev 预发行 → `vX.Y.Z` + `dev`，dev 正式版号只推 `dev`） |
+| `release.yml` | main / dev 推送 | 依据 `pyproject.toml` 手动维护的版本号打 `vX.Y.Z` tag 并 `gh release create`（规则见 `.github/scripts/release_check.py`） |
 
-> Release 说明由 commit 历史经 `release-templates/` 自定义模板生成（不含版本号下的许可说明行与 Detailed Changes 对比链接行），不带任何发行附件。
+> 版本号不再自动生成：在 `pyproject.toml` 手动维护。dev 上用预发行号（`x.y.z.alpha.n` / `x.y.z.beta.n`，推送即发预发行）；main 上发正式版。版本无变化时镜像构建跳过，版本号与已发版相同/倒退会使发布流程报错。
 
 版本号以 `pyproject.toml` 为基准、以 git tag 为准。
 

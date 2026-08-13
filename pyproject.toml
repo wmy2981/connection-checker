@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "connection-checker"
-version = "1.8.1"
+version = "1.10.0"
 description = "自托管网络连通性监控工具：Ping / TCP 端口 / HTTP 状态码检查，FastAPI + Vue3 仪表盘"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,7 @@ dependencies = [
   "argon2-cffi>=23.1",
   "PyJWT>=2.8",
   "python-multipart>=0.0.9",
+  "minio>=7.2,<8",
 ]
 
 [project.optional-dependencies]

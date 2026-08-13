@@ -5,7 +5,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from app.logging_setup import DailyFileHandler, apply_level, parse_level
+from app.logging_setup import DailyFileHandler, apply_level, configure, parse_level
 from app.models import AppSettings
 
 
@@ -144,6 +144,14 @@ def test_logs_api_source_filter(logged_client, no_scheduler):
     assert resp.json()["total"] == 0
 
 
+def test_logs_invalid_time_param_422(logged_client, no_scheduler):
+    """非法 start/end 时间格式返回 422 而非 500（回归）。"""
+    resp = logged_client.get("/api/v1/logs", params={"start": "not-a-date"})
+    assert resp.status_code == 422
+    resp = logged_client.get("/api/v1/logs/export", params={"end": "2026-13-99"})
+    assert resp.status_code == 422
+
+
 def test_logs_sources_endpoint(logged_client, no_scheduler):
     """来源枚举接口返回去重后的文件名/模块名。"""
     logging.getLogger("app.scheduler").warning("logs-sources-probe")
@@ -154,8 +162,65 @@ def test_logs_sources_endpoint(logged_client, no_scheduler):
     assert sources == sorted(sources)  # 去重且有序
 
 
+def test_log_sources_cache_keyed_by_data_dir(tmp_path):
+    """来源 TTL 缓存按数据目录分键：不同实例互不串扰（回归：全局单键会污染）。"""
+    from fastapi.testclient import TestClient
+
+    from app.api import logs as logs_api
+    from app.config import Settings
+    from app.main import create_app
+
+    def _client(dirpath):
+        s = Settings(
+            _env_file=None,
+            data_dir=dirpath,
+            access_code="cache-test",
+            jwt_secret="x" * 40,
+        )
+        with TestClient(create_app(s)) as c:
+            c.post("/api/v1/auth/login", json={"access_code": "cache-test"})
+            return c
+
+    c1 = _client(tmp_path / "d1")
+    c2 = _client(tmp_path / "d2")
+    assert c1.get("/api/v1/logs/sources").status_code == 200
+    assert c2.get("/api/v1/logs/sources").status_code == 200
+    # 两个新实例各自独立缓存键（不受前序测试已填充键的影响）
+    keys = set(logs_api._source_cache)
+    assert {str(tmp_path / "d1" / "logs"), str(tmp_path / "d2" / "logs")} <= keys
+
+
 def test_app_settings_log_level_validation():
     assert AppSettings().log_level == "INFO"
     assert AppSettings(log_level="DEBUG").log_level == "DEBUG"
     with pytest.raises(ValidationError):
         AppSettings(log_level="bogus")
+
+
+def test_uvicorn_access_level_pinned_to_debug(tmp_path):
+    """HTTP 访问日志固定 DEBUG 级，热更新不改变该固定行为。"""
+    configure(tmp_path, "INFO")
+    assert logging.getLogger("uvicorn").getEffectiveLevel() == logging.INFO
+    assert logging.getLogger("uvicorn.access").getEffectiveLevel() == logging.DEBUG
+
+    apply_level("ERROR")
+    assert logging.getLogger("uvicorn").getEffectiveLevel() == logging.ERROR
+
+
+def test_uvicorn_access_only_written_at_debug_level(tmp_path):
+    """HTTP 访问日志仅在全局 DEBUG 级别写入文件，INFO/WARN/ERROR 不刷屏。"""
+    configure(tmp_path, "INFO")
+    access = logging.getLogger("uvicorn.access")
+
+    def log_text() -> str:
+        return "".join(f.read_text(encoding="utf-8") for f in tmp_path.glob("app-*.log"))
+
+    access.info("GET /api/v1/targets 200")
+    access.warning("GET /api/v1/results 500")
+    assert "GET /api/v1/targets" not in log_text()
+    assert "GET /api/v1/results" not in log_text()
+
+    apply_level("DEBUG")
+    access.info("GET /api/v1/stats 200")
+    assert "GET /api/v1/stats" in log_text()
+    assert logging.getLogger("uvicorn.access").getEffectiveLevel() == logging.DEBUG

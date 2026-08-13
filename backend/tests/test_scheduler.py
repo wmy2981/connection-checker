@@ -93,6 +93,22 @@ async def test_reconcile_rebuilds_dead_task(tmp_path, settings, fake_checker):
         await sched.stop()
 
 
+async def test_manual_run_surfaces_crashed_check(tmp_path, settings, monkeypatch):
+    """manual_run 单目标检查崩溃：以 error 结果返回，不静默丢弃（前端可看到失败）。"""
+    sched = await _make_scheduler(tmp_path, settings)
+    target = Target(id="x1", name="t", ip="127.0.0.1", check_method="ping", check_interval=60)
+    await sched.config_store.upsert_target(target)
+
+    async def crash(self, t):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(Scheduler, "run_check", crash)
+    results = await sched.manual_run()
+    assert len(results) == 1
+    assert results[0].status == "error"
+    assert "boom" in results[0].message
+
+
 async def test_watchdog_survives_config_change(tmp_path, settings, fake_checker):
     """回归：外部修改 config.json 触发热加载时 watchdog 不得死亡。
 

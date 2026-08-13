@@ -1,6 +1,7 @@
 """持久化层：配置（JSON）、结果（JSONL，append-only）、密钥（哈希化的访问码与 JWT secret）。"""
 import asyncio
 import json
+import logging
 import os
 from collections import deque
 from datetime import datetime, timedelta
@@ -13,11 +14,15 @@ from app.models import (
     CheckResult,
     Paginated,
     ResultFilter,
+    S3Config,
     Target,
     WebhookConfig,
     new_id,
 )
+from app.s3_storage import S3Storage
 from app.timeutil import hhmm_in_range
+
+logger = logging.getLogger(__name__)
 
 
 def atomic_write(path: Path, text: str) -> None:
@@ -48,6 +53,7 @@ class ConfigStore:
         self.targets: dict[str, Target] = {}
         self._webhook = WebhookConfig()
         self._app = AppSettings()
+        self._s3 = S3Config()
         self._load()
 
     def _load(self) -> None:
@@ -56,7 +62,12 @@ class ConfigStore:
             return
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(
+                "Failed to parse config.json (%s): %s; resetting to defaults",
+                type(e).__name__,
+                e,
+            )
             self._persist()
             return
         self.targets = {}
@@ -67,20 +78,33 @@ class ConfigStore:
                 self.targets[t.id] = t
                 if "notify_enabled" not in item:
                     backfill = True
-            except Exception:
-                continue  # 单条损坏不拖垮整体
+            except Exception as e:
+                # 单条损坏不拖垮整体，但记录 error 便于排查
+                tid = item.get("id", "<no id>") if isinstance(item, dict) else "<non-dict>"
+                logger.error(
+                    "Invalid check target in config.json skipped (id=%s): %s",
+                    tid,
+                    e,
+                )
+                continue
         raw_webhook = raw.get("webhook")
         if isinstance(raw_webhook, dict):
             try:
                 self._webhook = WebhookConfig.model_validate(raw_webhook)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Invalid webhook config in config.json: %s", e)
         raw_app = raw.get("app")
         if isinstance(raw_app, dict):
             try:
                 self._app = AppSettings.model_validate(raw_app)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Invalid app settings in config.json: %s", e)
+        raw_s3 = raw.get("s3")
+        if isinstance(raw_s3, dict):
+            try:
+                self._s3 = S3Config.model_validate(raw_s3)
+            except Exception as e:
+                logger.error("Invalid s3 config in config.json: %s", e)
         if backfill:
             # 旧版配置缺少 notify_enabled，补默认 true 并写回，保证字段齐全
             self._persist()
@@ -93,6 +117,7 @@ class ConfigStore:
             "check_targets": [t.model_dump(mode="json") for t in self.targets.values()],
             "webhook": self._webhook.model_dump(mode="json"),
             "app": self._app.model_dump(mode="json"),
+            "s3": self._s3.model_dump(mode="json"),
         }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -156,19 +181,103 @@ class ConfigStore:
             self._persist()
         return self._app
 
+    async def get_s3_config(self) -> S3Config:
+        return self._s3
+
+    async def update_s3_config(self, cfg: S3Config) -> S3Config:
+        async with self._lock:
+            self._s3 = cfg
+            self._persist()
+        logger.info(
+            "S3 config updated: enabled=%s endpoint=%s bucket=%s region=%s datapath=%s",
+            cfg.enabled,
+            cfg.endpoint,
+            cfg.bucket,
+            cfg.region,
+            cfg.datapath,
+        )
+        return self._s3
+
 
 class ResultStore:
-    """检查结果，存于 data/results.jsonl（每行一个 JSON）。追加写，超上限截断最旧。"""
+    """检查结果，存于 data/results.jsonl（每行一个 JSON）。追加写，超上限截断最旧。
 
-    def __init__(self, path: Path, max_records: int):
+    storage_mode=local 仅本地；=both 本地 + S3 双写；=s3 主存 S3（本地文件作兜底缓冲），
+    启动时从 S3 加载并合并本地文件补缺。S3 按天对象 datapath/results/YYYY-MM-DD.jsonl
+    永久保留（不随本地裁剪丢失）。启用 S3（启动或切换存储模式）时本地全部历史按天补传，
+    日常 append 只同步当天，同步失败的日期保留待重试。
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        max_records: int,
+        storage_mode: str = "local",
+        s3: S3Storage | None = None,
+    ):
         self.path = path
         self.max_records = max_records
+        self._storage_mode = storage_mode
+        self._s3 = s3
+        self._s3_prefix = self._s3.cfg.datapath.rstrip("/") + "/results/" if s3 else ""
         self._lock = asyncio.Lock()
         self._results: deque[CheckResult] = deque()
+        self._seen_ids: set[str] = set()
         self._subscribers: set[asyncio.Queue] = set()
+        # 待补传到 S3 的日期（YYYY-MM-DD）：启动/切换存储模式时覆盖本地全部历史，
+        # 之后 append 只产生当天；同步失败的日期保留，下次 append 自动重试
+        self._dirty_dates: set[str] = set()
         self._load()
+        if self._s3 is not None:
+            self._dirty_dates.update(self._local_dates())
+            # 补传交给后台任务，不在启动路径上同步等待 S3（慢/不可达时不阻塞启动）
+            self._schedule_backfill()
+
+    def _schedule_backfill(self) -> None:
+        """S3 新启用（启动或热切换）后后台补传本地历史；无事件循环时留给下次 append。"""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._backfill_s3_task(), name="s3-backfill")
 
     def _load(self) -> None:
+        merge_local = False
+        if self._s3 is not None and self._storage_mode == "s3":
+            try:
+                self._load_from_s3()
+                merge_local = True
+            except Exception as e:  # noqa: BLE001
+                logger.warning("S3 results load failed: %s; falling back to local file", e)
+        self._load_local(merge=merge_local)
+        # S3 对象列表返回顺序不保证时间序，统一按检查时间升序（deque 尾部 = 最新）
+        self._results = deque(sorted(self._results, key=lambda r: r.checked_at))
+        self._trim_to_max()
+
+    def _trim_to_max(self) -> None:
+        """裁剪超出上限的最旧记录；_seen_ids 同步收缩，避免无界增长。"""
+        while len(self._results) > self.max_records:
+            old = self._results.popleft()
+            self._seen_ids.discard(old.id)
+
+    def _load_from_s3(self) -> None:
+        for object_name in self._s3.list_objects(self._s3_prefix):
+            data = self._s3.get_data(object_name)
+            if not data:
+                continue
+            for line in data.decode("utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = CheckResult.model_validate_json(line)
+                except Exception:
+                    continue
+                self._seen_ids.add(r.id)
+                self._results.append(r)
+        logger.info("Loaded %d results from S3", len(self._results))
+
+    def _load_local(self, merge: bool = False) -> None:
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8") as f:
@@ -177,11 +286,56 @@ class ResultStore:
                 if not line:
                     continue
                 try:
-                    self._results.append(CheckResult.model_validate_json(line))
+                    r = CheckResult.model_validate_json(line)
                 except Exception:
                     continue
-        while len(self._results) > self.max_records:
-            self._results.popleft()
+                if merge and r.id in self._seen_ids:
+                    continue
+                self._results.append(r)
+
+    def set_s3_mode(
+        self, storage_mode: str, s3_cfg: S3Config | None, access_id: str, access_key: str
+    ) -> None:
+        """热更新存储模式与 S3 客户端（配置变更后由 watchdog 调用）。"""
+        had_s3 = self._s3 is not None
+        if (
+            storage_mode == "local"
+            or s3_cfg is None
+            or not s3_cfg.enabled
+            or not (access_id and access_key)
+        ):
+            self._s3 = None
+            self._storage_mode = storage_mode
+        else:
+            self._s3 = S3Storage(s3_cfg, access_id, access_key)
+            self._storage_mode = storage_mode
+        self._s3_prefix = self._s3.cfg.datapath.rstrip("/") + "/results/" if self._s3 else ""
+        if self._s3 is not None and not had_s3:
+            # S3 新启用：本地历史数据也要补传（append 只同步当天）
+            self._dirty_dates.update(self._local_dates())
+            self._schedule_backfill()
+        logger.info(
+            "Result storage mode=%s s3=%s",
+            self._storage_mode,
+            "enabled" if self._s3 else "disabled",
+        )
+
+    def _local_dates(self) -> set[str]:
+        """内存中现有记录涉及的日期集合（本地时区），用于补传 S3。"""
+        return {r.checked_at.astimezone().strftime("%Y-%m-%d") for r in self._results}
+
+    async def _backfill_s3_task(self) -> None:
+        """S3 新启用后的历史数据后台补传（锁内取快照，同步在锁外执行）。"""
+        async with self._lock:
+            snapshot = list(self._results)
+        await self._sync_s3_async(snapshot)
+
+    async def _sync_s3_async(self, snapshot: list[CheckResult]) -> None:
+        """把 dirty 日期同步到 S3；失败仅留日志，日期保留下次 append 自动重试。"""
+        try:
+            await asyncio.to_thread(self._sync_dirty, snapshot)
+        except Exception as e:  # noqa: BLE001
+            logger.error("S3 results sync failed: %s; results kept in local file", e)
 
     def _persist_all(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,34 +348,121 @@ class ResultStore:
         if max_records == self.max_records:
             return
         self.max_records = max_records
-        excess = len(self._results) - self.max_records
-        if excess > 0:
-            for _ in range(excess):
-                self._results.popleft()
+        before = len(self._results)
+        self._trim_to_max()
+        if len(self._results) < before:
             self._persist_all()
 
     async def append(self, result: CheckResult) -> None:
         trimmed = False
+        sync_snapshot: list[CheckResult] | None = None
         async with self._lock:
             self._results.append(result)
+            self._seen_ids.add(result.id)
             if len(self._results) > self.max_records:
-                excess = len(self._results) - self.max_records
-                for _ in range(excess):
-                    self._results.popleft()
+                self._trim_to_max()
                 trimmed = True
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(result.model_dump_json() + "\n")
             if trimmed:
                 self._persist_all()
+            if self._s3 is not None:
+                # 当天日期必然需要同步；失败的旧日期也保留在 _dirty_dates 里重试
+                self._dirty_dates.add(result.checked_at.astimezone().strftime("%Y-%m-%d"))
+                sync_snapshot = list(self._results)
         await self._broadcast(result)
+        if sync_snapshot is not None:
+            # S3 同步移出临界区（锁内只做本地写入），慢/故障 S3 不冻结读写接口
+            await self._sync_s3_async(sync_snapshot)
+
+    async def import_records(self, results: list[CheckResult]) -> int:
+        """批量导入检查记录（数据导入/恢复用）：按 id 去重后追加、超限裁剪、
+        整文件重写；涉及的日期标记 S3 待补传（复用 append 路径自愈）。返回导入条数。"""
+        if not results:
+            return 0
+        sync_snapshot: list[CheckResult] | None = None
+        added = 0
+        dirty_dates: set[str] = set()
+        async with self._lock:
+            for r in results:
+                if r.id in self._seen_ids:
+                    continue
+                self._results.append(r)
+                self._seen_ids.add(r.id)
+                dirty_dates.add(r.checked_at.astimezone().strftime("%Y-%m-%d"))
+                added += 1
+            if added and len(self._results) > self.max_records:
+                self._trim_to_max()
+            if added:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self._persist_all()
+                if self._s3 is not None:
+                    self._dirty_dates.update(dirty_dates)
+                    sync_snapshot = list(self._results)
+        if sync_snapshot is not None:
+            await self._sync_s3_async(sync_snapshot)
+        return added
+
+    def _sync_dirty(self, snapshot: list[CheckResult]) -> None:
+        """把待补传日期逐个同步到 S3；单个日期失败不中断其余日期，失败日期保留重试。"""
+        for date_str in sorted(self._dirty_dates):
+            try:
+                ok = self._sync_to_s3(date_str, snapshot)
+            except Exception as e:  # noqa: BLE001
+                logger.error("S3 results sync failed for %s: %s", date_str, e)
+                continue
+            if not ok:
+                continue  # 拉取失败未同步，日期保留待下次重试
+            self._dirty_dates.discard(date_str)
+
+    def _sync_to_s3(self, date_str: str, snapshot: list[CheckResult]) -> bool:
+        """把指定日期当天的记录全量合并上传为 S3 对象（按 id 去重，永久保留）。
+
+        先拉取已有对象再并入新行，避免本地裁剪导致 S3 历史丢失；拉取失败时
+        无法安全合并，跳过本次上传（返回 False，日期保留待重试），绝不覆盖既有对象。
+        """
+        object_name = f"{self._s3_prefix}{date_str}.jsonl"
+        try:
+            data = self._s3.get_data(object_name)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to fetch existing S3 object %s: %s; deferring sync",
+                object_name,
+                e,
+            )
+            return False
+        merged: dict[str, str] = {}
+        if data:
+            for line in data.decode("utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    merged[CheckResult.model_validate_json(line).id] = line
+                except Exception:
+                    continue
+        for r in snapshot:
+            if r.checked_at.astimezone().strftime("%Y-%m-%d") == date_str:
+                merged[r.id] = r.model_dump_json()
+        payload = "".join(v + "\n" for v in merged.values())
+        if payload:
+            self._s3.put_data(object_name, payload.encode("utf-8"))
+        logger.debug(
+            "Synced %d records to s3://%s/%s", len(merged), self._s3.bucket, object_name
+        )
+        return True
 
     @staticmethod
     def _matches(f: ResultFilter, r: CheckResult) -> bool:
-        # status / target_id 支持逗号分隔多值（前端多选）
+        # status / check_method / target_id 支持逗号分隔多值（前端多选）
         if f.status:
             statuses = {s for s in f.status.split(",") if s and s != "all"}
             if statuses and r.status not in statuses:
+                return False
+        if f.check_method:
+            methods = {s for s in f.check_method.split(",") if s}
+            if methods and r.check_method not in methods:
                 return False
         if f.ip and not ip_matches(f.ip, r.ip):
             return False
@@ -283,16 +524,35 @@ class ResultStore:
             all_results = list(self._results)
         return [r for r in reversed(all_results) if self._matches(f, r)]
 
-    async def trend(self, hours: int = 24) -> list[dict[str, Any]]:
-        """按小时聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。"""
+    async def trend(
+        self,
+        hours: int = 24,
+        target_id: str | None = None,
+        unit: str = "hour",
+    ) -> list[dict[str, Any]]:
+        """聚合最近 N 小时的检查结果（本地时区，空时段也补齐）。
+
+        unit=hour：按小时桶；unit=day：按天桶（小时数折算为天数）。
+        target_id 指定时只统计该目标，用于单目标趋势排查。
+        """
         async with self._lock:
             results = list(self._results)
         now = datetime.now().astimezone()
-        base = now.replace(minute=0, second=0, microsecond=0)
-        cutoff = base - timedelta(hours=hours - 1)
+        if unit == "day":
+            count = max(1, hours // 24)
+            base = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            step = timedelta(days=1)
+            cutoff = base - timedelta(days=count - 1)
+            fmt = "%Y-%m-%d"
+        else:
+            count = hours
+            base = now.replace(minute=0, second=0, microsecond=0)
+            step = timedelta(hours=1)
+            cutoff = base - timedelta(hours=count - 1)
+            fmt = "%Y-%m-%dT%H:00"
         buckets: dict[str, dict[str, Any]] = {}
-        for i in range(hours):
-            key = (cutoff + timedelta(hours=i)).strftime("%Y-%m-%dT%H:00")
+        for i in range(count):
+            key = (cutoff + i * step).strftime(fmt)
             buckets[key] = {
                 "bucket": key,
                 "total": 0,
@@ -304,10 +564,12 @@ class ResultStore:
             }
         lat: dict[str, list[float]] = {}
         for r in results:
+            if target_id is not None and r.target_id != target_id:
+                continue
             t = r.checked_at.astimezone()
             if t < cutoff:
                 continue
-            b = buckets.get(t.strftime("%Y-%m-%dT%H:00"))
+            b = buckets.get(t.strftime(fmt))
             if b is None:
                 continue
             b["total"] += 1
@@ -319,6 +581,34 @@ class ResultStore:
             if vals:
                 b["avg_latency_ms"] = round(sum(vals) / len(vals), 1)
         return list(buckets.values())
+
+    async def uptime_per_target(
+        self, target_ids: list[str], hours: int = 24
+    ) -> dict[str, dict[str, Any]]:
+        """近 N 小时内每个目标的总检查数与成功率（无结果时 uptime_pct 为 None）。
+
+        窗口为滚动时间（now - hours），与 trend 的整点桶不同；用于目标可用率展示。
+        """
+        async with self._lock:
+            results = list(self._results)
+        cutoff = datetime.now().astimezone() - timedelta(hours=hours)
+        agg: dict[str, dict[str, Any]] = {}
+        for tid in target_ids:
+            agg[tid] = {"total": 0, "success": 0, "uptime_pct": None}
+        for r in results:
+            t = r.checked_at.astimezone()
+            if t < cutoff:
+                continue
+            a = agg.get(r.target_id)
+            if a is None:
+                continue
+            a["total"] += 1
+            if r.status == "success":
+                a["success"] += 1
+        for a in agg.values():
+            if a["total"]:
+                a["uptime_pct"] = round(a["success"] / a["total"] * 100, 1)
+        return agg
 
     async def latest_per_target(self, target_ids: list[str]) -> dict[str, CheckResult]:
         """返回每个目标最近一条结果（按时间倒序找首个）。"""
@@ -367,6 +657,9 @@ class SecretsStore:
         self.path = data_dir / "secrets.json"
         self.jwt_secret: str = ""
         self.access_code_hash: str = ""
+        self.s3_access_id: str = ""
+        self.s3_access_key: str = ""
+        self.api_token: str = ""
         self._load()
 
     def _load(self) -> None:
@@ -376,10 +669,38 @@ class SecretsStore:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self.jwt_secret = raw.get("jwt_secret", "")
             self.access_code_hash = raw.get("access_code_hash", "")
+            self.s3_access_id = raw.get("s3_access_id", "")
+            self.s3_access_key = raw.get("s3_access_key", "")
+            self.api_token = raw.get("api_token", "")
         except (json.JSONDecodeError, OSError):
             pass
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"jwt_secret": self.jwt_secret, "access_code_hash": self.access_code_hash}
+        payload = {
+            "jwt_secret": self.jwt_secret,
+            "access_code_hash": self.access_code_hash,
+            "s3_access_id": self.s3_access_id,
+            "s3_access_key": self.s3_access_key,
+            "api_token": self.api_token,
+        }
         atomic_write(self.path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+    def set_s3_credentials(self, access_id: str | None, access_key: str | None) -> None:
+        """更新 S3 凭据并落盘；None 表示该字段保持不变。日志只记录是否设置，不输出明文。"""
+        if access_id is not None:
+            self.s3_access_id = access_id
+        if access_key is not None:
+            self.s3_access_key = access_key
+        self.save()
+        logger.info(
+            "S3 credentials updated (access_id set=%s, access_key set=%s)",
+            access_id is not None,
+            access_key is not None,
+        )
+
+    def set_api_token(self, token: str | None) -> str | None:
+        """设置 API Token 并落盘；None = 清空禁用。返回当前 token（无则 None）。"""
+        self.api_token = token or ""
+        self.save()
+        return self.api_token or None

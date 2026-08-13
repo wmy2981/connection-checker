@@ -19,15 +19,18 @@ onMounted(async () => {
 
 <template>
   <footer class="app-footer">
-    <a
-      href="https://github.com/wmy2981/connection-checker"
-      target="_blank"
-      rel="noopener noreferrer"
-      class="footer-link"
-    >
-      <span>Connection Checker{{ version ? ` v${version}` : '' }}</span>
-      <n-icon :size="15"><LogoGithub /></n-icon>
-    </a>
+    <div class="footer-links">
+      <a href="/docs" target="_blank" rel="noopener noreferrer" class="footer-link">查看 API 文档（/docs）</a>
+      <a
+        href="https://github.com/wmy2981/connection-checker"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="footer-link"
+      >
+        <span>Connection Checker{{ version ? ` v${version}` : '' }}</span>
+        <n-icon :size="15"><LogoGithub /></n-icon>
+      </a>
+    </div>
   </footer>
 </template>
 
@@ -35,6 +38,12 @@ onMounted(async () => {
 .app-footer {
   padding: 24px 0 32px;
   text-align: center;
+}
+.footer-links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 .footer-link {
   display: inline-flex;

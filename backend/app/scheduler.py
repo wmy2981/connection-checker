@@ -8,7 +8,7 @@ from app.config import Settings
 from app.logging_setup import apply_level
 from app.models import CheckResult, Target
 from app.notifier import Notifier
-from app.storage import ConfigStore, ResultStore
+from app.storage import ConfigStore, ResultStore, SecretsStore
 from app.timeutil import is_time_in_ranges
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,13 @@ class Scheduler:
         result_store: ResultStore,
         notifier: Notifier,
         settings: Settings,
+        secrets_store: SecretsStore | None = None,
     ) -> None:
         self.config_store = config_store
         self.result_store = result_store
         self.notifier = notifier
         self.settings = settings
+        self.secrets_store = secrets_store
         self._tasks: dict[str, asyncio.Task] = {}
         self._watchdog: asyncio.Task | None = None
         self._last_mtime: float | None = config_store.file_mtime()
@@ -105,6 +107,14 @@ class Scheduler:
             if target.check_method == "http"
             else app_cfg.connect_timeout
         )
+        logger.debug(
+            "Starting check %s (%s) [%s] timeout=%ss ping_count=%s",
+            target.name or target.ip,
+            target.id,
+            target.check_method,
+            default_timeout,
+            target.ping_count or app_cfg.ping_count,
+        )
         checker = build_checker(
             target,
             default_timeout=default_timeout,
@@ -123,9 +133,14 @@ class Scheduler:
             extra=outcome.extra,
         )
         await self.result_store.append(result)
+        logger.debug(
+            "Result stored: id=%s status=%s latency=%sms",
+            result.id,
+            result.status,
+            result.latency_ms,
+        )
         await self.notifier.observe(result)
-        logger.info(
-            "Check finished %s (%s) [%s] status=%s latency=%sms msg=%s",
+        args = (
             target.name or target.ip,
             target.id,
             target.check_method,
@@ -133,19 +148,53 @@ class Scheduler:
             result.latency_ms,
             result.message,
         )
+        if result.status == "error":
+            logger.error("Check error %s (%s) [%s] status=%s latency=%sms msg=%s", *args)
+        elif result.status == "timeout":
+            logger.warning(
+                "Check timed out %s (%s) [%s] status=%s latency=%sms msg=%s", *args
+            )
+        elif result.status == "fail":
+            logger.warning("Check failed %s (%s) [%s] status=%s latency=%sms msg=%s", *args)
+        else:
+            logger.info("Check finished %s (%s) [%s] status=%s latency=%sms msg=%s", *args)
         return result
 
     async def manual_run(self, target_id: str | None = None) -> list[CheckResult]:
-        """手动立即检查。target_id 为空则检查全部启用的目标。"""
+        """手动立即检查。target_id 为空则并发检查全部启用的目标（限流 10 并发）。"""
         targets = await self.config_store.list_targets()
-        results: list[CheckResult] = []
-        for t in targets:
-            if not t.enabled:
-                continue
-            if target_id is not None and t.id != target_id:
-                continue
-            results.append(await self.run_check(t))
-        return results
+        selected = [
+            t
+            for t in targets
+            if t.enabled and (target_id is None or t.id == target_id)
+        ]
+        if not selected:
+            return []
+        sem = asyncio.Semaphore(10)
+
+        async def _guarded(t: Target) -> CheckResult:
+            # 单个目标异常（防御性，检查器通常不抛）不拖垮其他目标，
+            # 但以 error 结果返回：崩溃在界面可见，而不是被静默丢弃（前端会误报「全部正常」）
+            try:
+                async with sem:
+                    return await self.run_check(t)
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    "Manual check failed for %s (%s): %s", t.name or t.ip, t.id, e
+                )
+                return CheckResult(
+                    target_id=t.id,
+                    target_name=t.name,
+                    ip=t.ip,
+                    check_method=t.check_method,
+                    status="error",
+                    latency_ms=None,
+                    message=f"check crashed: {e}",
+                    extra={},
+                )
+
+        results = await asyncio.gather(*(_guarded(t) for t in selected))
+        return list(results)
 
     async def _watch_config(self) -> None:
         """检测 config.json 被外部编辑并热重载。"""
@@ -159,6 +208,14 @@ class Scheduler:
                     app_cfg = await self.config_store.get_app_settings()
                     # resize 是同步方法；await 它会在 Python 3.12 抛 TypeError 杀死 watchdog
                     self.result_store.resize(app_cfg.result_max_records)
+                    if self.secrets_store is not None:
+                        s3_cfg = await self.config_store.get_s3_config()
+                        self.result_store.set_s3_mode(
+                            app_cfg.storage_mode,
+                            s3_cfg,
+                            self.secrets_store.s3_access_id,
+                            self.secrets_store.s3_access_key,
+                        )
                     apply_level(app_cfg.log_level)
                     await self.reconcile()
                     logger.info(

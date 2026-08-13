@@ -96,22 +96,40 @@ def get_security(request: Request) -> Security:
 
 
 def require_auth(request: Request) -> None:
-    """JWT Cookie 校验 + 变更请求要求 JSON 内容类型（CSRF 纵深防御）。
+    """JWT Cookie 或 API Token（Authorization: Bearer）校验 + 写方法要求 JSON（CSRF 纵深防御）。
 
-    未设置访问码时为免认证模式，直接放行。
+    未设置访问码时为免认证模式，直接放行。API Token 存于 secrets.json 的 api_token，
+    生成新 token 后旧 token 立即失效。
     """
     security = get_security(request)
     if not security.auth_enabled:
         return
+
+    auth_header = request.headers.get("authorization", "")
     token = request.cookies.get(COOKIE_NAME)
-    if not token or not security.verify_token(token):
+    if token and security.verify_token(token):
+        # 会话 Cookie 优先：残留/失效的 Bearer 头（token 已轮换或脚本遗留）不破坏有效会话
+        authed = True
+    elif auth_header.startswith("Bearer "):
+        api_token = request.app.state.secrets_store.api_token
+        authed = bool(api_token) and secrets.compare_digest(auth_header[7:], api_token)
+    else:
+        authed = False
+    if not authed:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未授权访问")
 
     # 带 body 的写方法要求 JSON 内容类型（CSRF 纵深防御）。DELETE 无 body，
     # 且跨源无法通过表单/预检触发，天然安全，不受此限。
+    # multipart 例外：仅数据导入端点使用（上传 zip），必须携带 X-Requested-With
+    # 自定义头——跨站表单无法携带自定义头（同源 fetch 才带），防 CSRF 同样成立。
     if request.method in ("POST", "PUT", "PATCH"):
         content_type = request.headers.get("content-type", "")
         if not content_type.startswith("application/json"):
+            if (
+                content_type.startswith("multipart/form-data")
+                and request.headers.get("x-requested-with") == "XMLHttpRequest"
+            ):
+                return
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                 detail="需 application/json",

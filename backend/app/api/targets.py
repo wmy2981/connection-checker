@@ -1,4 +1,5 @@
 """检查目标 CRUD。"""
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -7,6 +8,8 @@ from app.auth import require_auth
 from app.models import Target, TargetCreate, TargetUpdate
 from app.scheduler import Scheduler
 from app.storage import ConfigStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/targets", tags=["targets"], dependencies=[Depends(require_auth)])
 
@@ -36,6 +39,13 @@ async def create_target(request: Request, payload: TargetCreate) -> Target:
     )
     await store.upsert_target(target)
     await _get_scheduler(request).reconcile()
+    logger.info(
+        "Target created %s (%s) [%s] interval=%ss",
+        target.name or target.ip,
+        target.id,
+        target.check_method,
+        target.check_interval,
+    )
     return target
 
 
@@ -52,6 +62,12 @@ async def update_target(request: Request, target_id: str, payload: TargetUpdate)
     merged = Target.model_validate(data)
     await store.upsert_target(merged)
     await _get_scheduler(request).reconcile()
+    logger.info(
+        "Target updated %s (%s) fields=%s",
+        merged.name or merged.ip,
+        merged.id,
+        sorted(payload.model_fields_set),
+    )
     return merged
 
 
@@ -61,3 +77,4 @@ async def delete_target(request: Request, target_id: str) -> None:
     if not await store.delete_target(target_id):
         raise HTTPException(status_code=404, detail="目标不存在")
     await _get_scheduler(request).reconcile()
+    logger.info("Target deleted %s", target_id)

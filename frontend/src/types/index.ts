@@ -56,6 +56,7 @@ export interface CheckResult {
 
 export interface ResultFilterParams {
   status?: string
+  check_method?: string
   ip?: string
   target_name?: string
   target_id?: string
@@ -87,6 +88,9 @@ export interface TargetStatus {
   last_latency_ms: number | null
   last_checked_at: string | null
   last_message: string | null
+  uptime_pct: number | null
+  uptime_total: number | null
+  consecutive_fails: number
 }
 
 export interface StatsSummary {
@@ -108,6 +112,20 @@ export interface WebhookConfig {
   fail_threshold: number
 }
 
+export interface S3Config {
+  enabled: boolean
+  endpoint: string
+  bucket: string
+  region: string | null
+  datapath: string
+  has_credentials: boolean
+}
+
+export type S3ConfigInput = Omit<S3Config, 'has_credentials'> & {
+  access_id?: string | null
+  access_key?: string | null
+}
+
 export interface AppSettings {
   result_max_records: number
   ping_count: number
@@ -115,6 +133,10 @@ export interface AppSettings {
   http_timeout: number
   stats_window: number
   log_level: string
+  log_cleanup_mode: string
+  log_retention_days: number
+  storage_mode: string
+  brand_icon: string | null
 }
 
 export interface LogEntry {
@@ -144,7 +166,27 @@ export interface TrendBucket {
   avg_latency_ms: number | null
 }
 
+export interface ApiTokenInfo {
+  has_token: boolean
+  token: string | null
+}
+
+export interface BackupInfo {
+  name: string
+  size: number
+  created_at: string
+}
+
+export interface ImportStats {
+  records: number
+  targets: number
+  settings: boolean
+  backup: string
+}
+
 export interface TrendData {
   hours: number
+  target_id: string | null
+  unit: 'hour' | 'day'
   buckets: TrendBucket[]
 }

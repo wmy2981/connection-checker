@@ -49,6 +49,18 @@ export function formatDateTime(iso: string): string {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`
 }
 
+/**
+ * 相对时间：1 分钟内「N 秒前」、1 小时内「N 分钟前」、24 小时内「N 小时前」，
+ * 超过 24 小时返回绝对时间。now 由调用方传入以支持定时刷新。
+ */
+export function relativeTime(iso: string, now: number = Date.now()): string {
+  const diff = Math.max(0, now - new Date(iso).getTime())
+  if (diff < 60_000) return `${Math.floor(diff / 1000)} 秒前`
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return formatDateTime(iso)
+}
+
 /** 将时间戳转为容器时区的 `YYYY-MM-DD`（用于历史日期筛选）。 */
 export function dateFromTimestamp(ms: number): string {
   const d = new Date(ms)

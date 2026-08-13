@@ -1,17 +1,53 @@
+# Git / CI
 .git
 .github
 .gitignore
+
+# Agent
+.claude
+.agents
+CLAUDE.local.md
+CLAUDE.md
+backend/CLAUDE.md
+frontend/CLAUDE.md
+
+# Python 缓存与构建产物
 .venv
 venv
 **/__pycache__
 **/*.pyc
-data
+*.egg-info
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+build
+dist
+backend/app/static
+
+# Node / frontend 缓存与构建产物
 node_modules
 frontend/node_modules
+frontend/dist
+frontend/.vite
+*.tsbuildinfo
+npm-debug.log*
+
+# 运行时数据与敏感配置（Dockerfile 未 COPY，排除以减小上下文）
+data
 *.log
 *.bak
+.env
+
+# 编辑器 / OS
 .idea
 .vscode
+.DS_Store
+Thumbs.db
+
+# 其余不进入镜像的文件
 tests
 docs
 docker-compose.yml
+Dockerfile
+.dockerignore

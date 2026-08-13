@@ -37,10 +37,18 @@ async def test_ping_success(monkeypatch):
 
 
 async def test_ping_extra_jitter_stddev(monkeypatch):
-    samples = iter([0.01, 0.03, 0.01, 0.05])
+    import threading
+
+    samples = [0.01, 0.03, 0.01, 0.05]
+    idx = 0
+    lock = threading.Lock()  # 并发发包下保证取值顺序
 
     def fake_ping(*a, **k):
-        return next(samples)
+        nonlocal idx
+        with lock:
+            v = samples[idx]
+            idx += 1
+            return v
 
     monkeypatch.setattr("ping3.ping", fake_ping)
     outcome = await PingChecker(timeout=1.0, count=4).check(_target("ping"))
@@ -70,11 +78,15 @@ async def test_ping_host_unknown(monkeypatch):
 
 
 async def test_ping_partial_loss(monkeypatch):
+    import threading
+
     calls = {"n": 0}
+    lock = threading.Lock()  # 并发发包下保证计数不丢
 
     def fake_ping(*a, **k):
-        calls["n"] += 1
-        return 0.02 if calls["n"] % 2 == 0 else None
+        with lock:
+            calls["n"] += 1
+            return 0.02 if calls["n"] % 2 == 0 else None
 
     monkeypatch.setattr("ping3.ping", fake_ping)
     outcome = await PingChecker(timeout=1.0, count=4).check(_target("ping"))
@@ -164,11 +176,45 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
 
+class _BigHandler(BaseHTTPRequestHandler):
+    """Content-Length 声明 10MB 并持续发送；客户端应在读取上限后停止。"""
+
+    def do_GET(self):
+        try:
+            self.send_response(200)
+            self.send_header("Content-Length", str(10 * 1024 * 1024))
+            self.end_headers()
+            for _ in range(5):
+                self.wfile.write(b"x" * (1024 * 1024))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # 客户端读取到上限主动断开属预期
+
+    def log_message(self, *a):  # noqa: ANN002
+        pass
+
+
 def _http_server() -> tuple[ThreadingHTTPServer, int]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     return server, server.server_address[1]
+
+
+async def test_http_body_read_limit():
+    """大响应体只读取到上限：状态码检查不被大文件拖慢，header 里的真实大小保留。"""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _BigHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    try:
+        outcome = await HttpChecker(5.0).check(
+            _target("http", port=server.server_address[1], url_path="/")
+        )
+        assert outcome.status == "success"
+        assert 0 < outcome.extra["response_size"] <= 1_100_000  # 略超上限的最后一个 chunk
+        assert outcome.extra["content_length"] == 10 * 1024 * 1024
+    finally:
+        server.shutdown()
 
 
 async def test_http_success():
@@ -180,7 +226,7 @@ async def test_http_success():
         assert outcome.extra["http_version"]  # "HTTP/1.0" 或 "HTTP/1.1"
         assert outcome.extra["redirects"] == 0
         assert outcome.extra["final_url"].endswith(f":{port}/")
-        assert outcome.extra["ttfb_ms"] > 0
+        assert outcome.extra["ttfb_ms"] >= 0  # 本地快速响应在低精度计时器（如 Windows）下可能为 0
         assert outcome.extra["body_read_ms"] >= 0
         assert outcome.extra["total_ms"] == pytest.approx(outcome.latency_ms, abs=1)
         assert outcome.extra["response_size"] == 2  # body "ok"

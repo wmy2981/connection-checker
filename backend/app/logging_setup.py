@@ -2,14 +2,13 @@
 
 级别来源为 config.json 的 app.log_level（DEBUG/INFO/WARN/ERROR），由启动时装配、
 watchdog 检测到配置变更时热更新。文件按进程本地时区（容器内 TZ 环境变量生效）
-每天切一个新文件，旧文件保留 LOG_RETENTION_DAYS 天。
+每天切一个新文件。旧日志的清理（删除或上传 S3）由 LogCleaner 服务按
+config.json 的 app.log_cleanup_mode / app.log_retention_days 执行。
 """
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-
-LOG_RETENTION_DAYS = 30
 
 _LEVELS = {
     "DEBUG": logging.DEBUG,
@@ -18,6 +17,17 @@ _LEVELS = {
     "WARNING": logging.WARNING,
     "ERROR": logging.ERROR,
 }
+
+
+class _AccessFilter(logging.Filter):
+    """uvicorn.access 的 HTTP 访问记录是 INFO 级（setLevel 挡不住），
+
+    只在全局级别为 DEBUG 时放行，实现「默认级别下访问日志不刷屏」。
+    filter 动态读取根 logger 当前级别，热更新后无需重新装配。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return logging.getLogger().getEffectiveLevel() <= logging.DEBUG
 
 # filename:lineno 精确到产生日志的 Python 文件与行号，供日志按来源筛选
 _FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
@@ -33,7 +43,7 @@ class DailyFileHandler(logging.Handler):
 
     TimedRotatingFileHandler 的轮转基于进程本地时间，Windows 开发机上不读 TZ
     环境变量；这里显式用 astimezone() 保证与前端展示时区一致。文件名为
-    app-YYYY-MM-DD.log，切日时顺带清理超过 LOG_RETENTION_DAYS 的旧文件。
+    app-YYYY-MM-DD.log；旧文件清理由 LogCleaner 服务负责。
     """
 
     def __init__(self, log_dir: Path, encoding: str = "utf-8") -> None:
@@ -62,16 +72,6 @@ class DailyFileHandler(logging.Handler):
             self.log_dir / f"app-{date}.log", "a", encoding=self.encoding
         )
         self._current_date = date
-        self._cleanup()
-
-    def _cleanup(self) -> None:
-        for f in self.log_dir.glob("app-*.log"):
-            try:
-                stamp = datetime.strptime(f.name[len("app-"):-len(".log")], "%Y-%m-%d")
-            except ValueError:
-                continue
-            if (datetime.now().astimezone().date() - stamp.date()).days > LOG_RETENTION_DAYS:
-                f.unlink(missing_ok=True)
 
     def close(self) -> None:
         if self._stream is not None:
@@ -92,16 +92,25 @@ def configure(log_dir: Path, level: str = "INFO") -> None:
     root.addHandler(console)
     root.addHandler(DailyFileHandler(log_dir))
     # uvicorn 自带 handler 只输出控制台且格式简单；统一交给根 logger（进文件）
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error"):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
         lg.setLevel(lvl)
+    # HTTP 访问日志（每次请求一行）过于详细：固定 DEBUG 级 + 过滤器，
+    # 仅全局 DEBUG 时写入（INFO/WARN/ERROR 级别下不刷屏）
+    access = logging.getLogger("uvicorn.access")
+    access.handlers.clear()
+    access.propagate = True
+    access.setLevel(logging.DEBUG)
+    access.filters.clear()
+    access.addFilter(_AccessFilter())
 
 
 def apply_level(level: str) -> None:
     """热更新日志级别（config.json 的 app.log_level 变更后调用）。"""
     lvl = parse_level(level)
     logging.getLogger().setLevel(lvl)
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error"):
         logging.getLogger(name).setLevel(lvl)
+    logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)

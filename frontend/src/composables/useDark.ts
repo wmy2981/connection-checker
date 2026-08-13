@@ -7,8 +7,16 @@ const STORAGE_KEY = 'cc-theme-mode'
 const media = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(media.matches)
 
-// 用户选择保存在 localStorage，默认跟随系统
-const saved = localStorage.getItem(STORAGE_KEY)
+// 用户选择保存在 localStorage（隐私模式/禁用存储时降级为内存态，不抛异常）
+function readStoredMode(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+const saved = readStoredMode()
 export const mode = ref<ThemeMode>(
   saved === 'light' || saved === 'dark' || saved === 'auto' ? saved : 'auto',
 )
@@ -19,7 +27,11 @@ export const isDark = computed(
 
 export function setMode(m: ThemeMode) {
   mode.value = m
-  localStorage.setItem(STORAGE_KEY, m)
+  try {
+    localStorage.setItem(STORAGE_KEY, m)
+  } catch {
+    /* 存储不可用时仅内存生效 */
+  }
 }
 
 function applyDark(dark: boolean) {

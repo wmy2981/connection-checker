@@ -6,11 +6,12 @@
 traceback 等续行（不以时间戳开头）并入上一条的 message。
 """
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from app.auth import require_auth
 
@@ -45,14 +46,31 @@ def _normalize_ts(value: str) -> datetime:
         return datetime.strptime(text, "%Y-%m-%d")
 
 
-def _entries(request: Request):
+def _entries(
+    request: Request, start_dt: datetime | None = None, end_dt: datetime | None = None
+):
     """按时间正序产出日志条目；续行并入上一条的 message。
 
+    start_dt / end_dt 按文件名日期跳过范围外的日志文件（天级粗过滤，
+    行级过滤仍精确），避免每次查询都解析全部历史文件。
     source 为产生日志的「文件名:行号」（如 scheduler.py:72）；旧格式行无来源
     信息时为 None（保留 name 供按模块筛选）。
     """
     last: dict | None = None
     for f in sorted(_log_dir(request).glob("app-*.log")):
+        try:
+            fdate = datetime.strptime(f.stem.removeprefix("app-"), "%Y-%m-%d")
+        except ValueError:
+            fdate = None
+        if fdate is not None:
+            if start_dt is not None and fdate < start_dt.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ):
+                continue
+            if end_dt is not None and fdate > end_dt.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ):
+                continue
         try:
             fh = f.open(encoding="utf-8")
         except OSError:
@@ -108,9 +126,12 @@ def _filtered(
         else None
     )
     srcs = [s.strip().lower() for s in source.split(",") if s.strip()] if source else None
-    start_dt = _normalize_ts(start) if start else None
-    end_dt = _normalize_ts(end) if end else None
-    for entry in _entries(request):
+    try:
+        start_dt = _normalize_ts(start) if start else None
+        end_dt = _normalize_ts(end) if end else None
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"无效的时间格式: {e}") from None
+    for entry in _entries(request, start_dt, end_dt):
         if levels and _norm_level(entry["level"].upper()) not in levels:
             continue
         if srcs:
@@ -126,15 +147,28 @@ def _filtered(
         yield entry
 
 
+# 来源枚举 TTL 缓存：避免每次打开日志弹窗都全量解析历史文件（来源变化不频繁）。
+# 按日志目录分键，防止不同数据目录（测试实例、多实例）之间互相串扰。
+_source_cache: dict[str, tuple[float, list[str]]] = {}
+SOURCE_CACHE_TTL = 30.0
+
+
 @router.get("/sources")
 async def log_sources(request: Request) -> dict:
     """日志中出现过的来源（文件名或模块名，去重排序），供前端筛选下拉。"""
+    key = str(request.app.state.settings.data_dir / "logs")
+    now = time.monotonic()
+    hit = _source_cache.get(key)
+    if hit is not None and now - hit[0] < SOURCE_CACHE_TTL:
+        return {"sources": hit[1]}
     sources: set[str] = set()
     for entry in _entries(request):
         origin = entry["source"] or entry["name"]
         # source 形如 scheduler.py:72，取文件名部分
         sources.add(origin.split(":", 1)[0])
-    return {"sources": sorted(sources)}
+    result = sorted(sources)
+    _source_cache[key] = (now, result)
+    return {"sources": result}
 
 
 @router.get("")
@@ -174,21 +208,33 @@ async def export_logs(
     start: str | None = Query(default=None, description="起始时间，格式同列表接口"),
     end: str | None = Query(default=None, description="结束时间，格式同列表接口"),
     source: str | None = Query(default=None, description="来源筛选，逗号分隔多值，格式同列表接口"),
-) -> PlainTextResponse:
-    lines = []
-    for entry in _filtered(request, level, start, end, source):
-        # 新格式含来源段；旧格式行无来源信息时按旧格式导出
-        if entry["source"]:
-            lines.append(
-                f"{entry['time']} | {entry['level']} | {entry['name']}"
-                f" | {entry['source']} | {entry['message']}"
-            )
-        else:
-            lines.append(
-                f"{entry['time']} | {entry['level']} | {entry['name']} | {entry['message']}"
-            )
-    text = "\n".join(lines) + ("\n" if lines else "")
+) -> StreamingResponse:
+    # 参数校验必须在流开始前完成：流式响应一旦开始就返回不了 422
+    try:
+        if start:
+            _normalize_ts(start)
+        if end:
+            _normalize_ts(end)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"无效的时间格式: {e}") from None
+
+    def _gen():
+        for entry in _filtered(request, level, start, end, source):
+            # 新格式含来源段；旧格式行无来源信息时按旧格式导出
+            if entry["source"]:
+                yield (
+                    f"{entry['time']} | {entry['level']} | {entry['name']}"
+                    f" | {entry['source']} | {entry['message']}\n"
+                )
+            else:
+                yield (
+                    f"{entry['time']} | {entry['level']} | {entry['name']}"
+                    f" | {entry['message']}\n"
+                )
+
     fname = f"logs-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
-    return PlainTextResponse(
-        text, headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+    return StreamingResponse(
+        _gen(),
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )

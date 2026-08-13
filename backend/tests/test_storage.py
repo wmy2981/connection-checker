@@ -1,5 +1,6 @@
+import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.models import AppSettings, CheckResult, ResultFilter, Target, TimeRange, WebhookConfig
 from app.storage import ConfigStore, ResultStore
@@ -282,6 +283,81 @@ async def test_latest_per_target_and_counts(tmp_path):
     assert counts["timeout"] == 1
 
 
+async def test_uptime_per_target(tmp_path):
+    """可用率统计：仅计滚动窗口内结果，无样本返回 None。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    await store.append(_result("t1", "success", now))
+    await store.append(_result("t1", "success", now - timedelta(minutes=5)))
+    await store.append(_result("t1", "fail", now - timedelta(minutes=10)))
+    await store.append(_result("t2", "timeout", now - timedelta(minutes=1)))
+    # 超出 24h 窗口的旧记录不计入
+    await store.append(_result("t1", "success", now - timedelta(hours=25)))
+
+    up = await store.uptime_per_target(["t1", "t2", "ghost"])
+    assert up["t1"]["total"] == 3
+    assert up["t1"]["success"] == 2
+    assert up["t1"]["uptime_pct"] == round(2 / 3 * 100, 1)
+    assert up["t2"]["total"] == 1
+    assert up["t2"]["uptime_pct"] == 0.0
+    assert up["ghost"] == {"total": 0, "success": 0, "uptime_pct": None}
+
+    # 自定义窗口：6 小时内 3 条都在窗口内
+    up6 = await store.uptime_per_target(["t1"], hours=6)
+    assert up6["t1"]["total"] == 3
+    assert up6["t1"]["uptime_pct"] == round(2 / 3 * 100, 1)
+
+
+async def test_trend_day_unit(tmp_path):
+    """trend unit=day：按天聚合，桶格式为 YYYY-MM-DD。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    await store.append(_result("t1", "success", now))
+    await store.append(_result("t1", "fail", now - timedelta(hours=2)))
+    await store.append(_result("t1", "success", now - timedelta(days=1)))
+    await store.append(_result("t1", "success", now - timedelta(days=10)))
+
+    buckets = await store.trend(24, unit="day")
+    assert len(buckets) == 1
+    last = buckets[-1]
+    assert last["bucket"] == now.astimezone().strftime("%Y-%m-%d")
+    assert last["total"] == 2
+    assert last["success"] == 1
+    assert last["fail"] == 1
+
+    # 7 天窗口包含昨天与今天
+    week = await store.trend(168, unit="day")
+    assert len(week) == 7
+    assert sum(b["total"] for b in week) == 3
+    # 按目标过滤同样适用于天级聚合
+    t1_only = await store.trend(168, unit="day", target_id="t1")
+    assert sum(b["total"] for b in t1_only) == 3
+    ghost = await store.trend(168, unit="day", target_id="ghost")
+    assert sum(b["total"] for b in ghost) == 0
+
+
+async def test_trend_filter_by_target(tmp_path):
+    """trend 支持按目标过滤：只统计指定目标的记录。"""
+    store = ResultStore(tmp_path / "results.jsonl", max_records=100)
+    now = datetime.now(timezone.utc)
+    await store.append(_result("t1", "success", now))
+    await store.append(_result("t1", "fail", now))
+    await store.append(_result("t2", "success", now))
+
+    all_buckets = await store.trend(24)
+    last = all_buckets[-1]
+    assert last["total"] == 3
+
+    t1_buckets = await store.trend(24, target_id="t1")
+    t1_last = t1_buckets[-1]
+    assert t1_last["total"] == 2
+    assert t1_last["success"] == 1
+    assert t1_last["fail"] == 1
+
+    t2_buckets = await store.trend(24, target_id="t2")
+    assert t2_buckets[-1]["total"] == 1
+
+
 async def test_result_store_datetime_range_cross_day(tmp_path):
     """start_at/end_at 完整时间范围过滤，支持跨日（如 22:00 到次日 06:00）。"""
     store = ResultStore(tmp_path / "results.jsonl", max_records=100)
@@ -305,3 +381,326 @@ async def test_result_store_datetime_range_cross_day(tmp_path):
     # 只给结束（无起始）
     hits = await store.query(ResultFilter(end_at="2026-08-10T06:00:00", page_size=100))
     assert hits.total == 2
+
+
+async def test_config_load_errors_logged(tmp_path, caplog):
+    """配置损坏时报 error 日志便于排查，原错误处理行为不变（回退默认/跳过）。"""
+    import logging
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+
+    # JSON 解析失败 → error + 重建默认配置
+    (data_dir / "config.json").write_text("{broken json", encoding="utf-8")
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        store = ConfigStore(data_dir)
+    assert any("Failed to parse config.json" in r.message for r in caplog.records)
+    assert await store.get_app_settings() == AppSettings()
+
+    # 单条 target 损坏 → error + 跳过该条，其余正常
+    valid_target = {
+        "id": "ok1",
+        "name": "正常",
+        "ip": "8.8.8.8",
+        "check_method": "ping",
+        "check_interval": 60,
+    }
+    data = {
+        "version": 1,
+        "check_targets": [
+            valid_target,
+            {"id": "bad1", "ip": "", "check_method": "nonsense"},
+            "not-a-dict",
+        ],
+        "webhook": {},
+        "app": {},
+    }
+    (data_dir / "config.json").write_text(json.dumps(data), encoding="utf-8")
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        store = ConfigStore(data_dir)
+    errors = [r for r in caplog.records if "Invalid check target" in r.message]
+    assert len(errors) == 2  # bad1 与 not-a-dict 各一条
+    assert (await store.get_target("ok1")) is not None
+    assert (await store.get_target("bad1")) is None
+
+    # app 节无效 → error + 默认值
+    data["app"] = {"stats_window": "not-a-number"}
+    (data_dir / "config.json").write_text(json.dumps(data), encoding="utf-8")
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        store = ConfigStore(data_dir)
+    assert any("Invalid app settings" in r.message for r in caplog.records)
+    assert await store.get_app_settings() == AppSettings()
+
+
+class FakeS3:
+    """内存版 S3 客户端：duck-typing S3Storage 接口，便于断言同步行为。"""
+
+    def __init__(self, datapath: str = "data/"):
+        from types import SimpleNamespace
+
+        self.cfg = SimpleNamespace(datapath=datapath, bucket="cc")
+        self.bucket = "cc"  # 对齐真实 S3Storage 接口（sync 成功日志访问该属性）
+        self.objects: dict[str, bytes] = {}
+        self.fail_put = False
+        self.fail_get = False
+        self.fail_put_objects: set[str] = set()
+        self.put_calls = 0
+
+    def put_data(self, object_name: str, data: bytes) -> None:
+        self.put_calls += 1
+        if self.fail_put or object_name in self.fail_put_objects:
+            raise RuntimeError("s3 down")
+        self.objects[object_name] = data
+
+    def get_data(self, object_name: str) -> bytes | None:
+        if self.fail_get:
+            raise RuntimeError("s3 down")
+        return self.objects.get(object_name)
+
+    def list_objects(self, prefix: str) -> list[str]:
+        return sorted(k for k in self.objects if k.startswith(prefix))
+
+
+class BrokenS3:
+    cfg = FakeS3().cfg
+
+    def list_objects(self, prefix: str):
+        raise RuntimeError("s3 down")
+
+    def get_data(self, object_name: str):
+        raise RuntimeError("s3 down")
+
+
+async def test_result_store_both_mode_syncs_to_s3(tmp_path):
+    """both 模式：本地照常写，S3 按天对象同步，对象含记录内容。"""
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    r = _result("t1", "success", datetime.now(timezone.utc))
+    await store.append(r)
+    date = r.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert s3.put_calls == 1
+    obj = s3.objects[f"data/results/{date}.jsonl"]
+    assert r.model_dump_json().encode() in obj
+    assert (tmp_path / "results.jsonl").exists()  # 本地文件仍写（兜底）
+
+
+async def test_result_store_s3_sync_merges_existing(tmp_path):
+    """S3 对象按 id 去重合并：新 append 不覆盖旧记录。"""
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    old = _result("t1", "success", datetime.now(timezone.utc))
+    await store.append(old)
+    date = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    new = _result("t2", "fail", datetime.now(timezone.utc))
+    await store.append(new)
+    obj = s3.objects[f"data/results/{date}.jsonl"].decode("utf-8")
+    assert old.id in obj and new.id in obj
+
+
+async def test_result_store_s3_sync_failure_keeps_local(tmp_path, caplog):
+    """S3 写失败：ERROR 日志 + 不抛异常 + 记录留在本地文件。"""
+    import logging
+
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    s3.fail_put = True
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        await store.append(_result("t1", "success", datetime.now(timezone.utc)))
+    assert any("S3 results sync failed" in r.message for r in caplog.records)
+    assert (tmp_path / "results.jsonl").read_text(encoding="utf-8").strip()
+
+
+async def test_result_store_s3_mode_loads_from_s3(tmp_path):
+    """s3 模式启动时从 S3 加载全部对象。"""
+    s3 = FakeS3()
+    r = _result("t1", "success", datetime.now(timezone.utc))
+    date = r.checked_at.astimezone().strftime("%Y-%m-%d")
+    s3.objects[f"data/results/{date}.jsonl"] = (r.model_dump_json() + "\n").encode()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=s3)
+    recent = await store.recent(10)
+    assert len(recent) == 1 and recent[0].id == r.id
+
+
+async def test_result_store_s3_mode_merges_local_backfill(tmp_path):
+    """s3 模式加载：S3 为主，本地文件补 S3 缺失的记录（失败期间不丢）。"""
+    s3 = FakeS3()
+    old = _result("t1", "success", datetime.now(timezone.utc))
+    date = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    s3.objects[f"data/results/{date}.jsonl"] = (old.model_dump_json() + "\n").encode()
+    fresh = _result("t2", "fail", datetime.now(timezone.utc))
+    (tmp_path / "results.jsonl").write_text(fresh.model_dump_json() + "\n", encoding="utf-8")
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=s3)
+    recent = await store.recent(10)
+    assert {r.id for r in recent} == {old.id, fresh.id}
+
+
+async def test_result_store_s3_load_failure_falls_back_local(tmp_path, caplog):
+    """s3 模式 S3 不可达：WARN + 回退本地文件。"""
+    import logging
+
+    r = _result("t1", "success", datetime.now(timezone.utc))
+    (tmp_path / "results.jsonl").write_text(r.model_dump_json() + "\n", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="app.storage"):
+        store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=BrokenS3())
+    recent = await store.recent(10)
+    assert len(recent) == 1
+    assert any("falling back to local" in x.message for x in caplog.records)
+
+
+def test_result_store_set_s3_mode_switches(tmp_path):
+    """set_s3_mode 热更新：启用/禁用 S3 客户端与对象前缀。"""
+    from app.models import S3Config
+
+    store = ResultStore(tmp_path / "results.jsonl", 100)
+    store.set_s3_mode(
+        "both",
+        S3Config(enabled=True, endpoint="http://x", bucket="b", datapath="data/"),
+        "id",
+        "key",
+    )
+    assert store._s3 is not None
+    assert store._s3_prefix == "data/results/"
+    store.set_s3_mode("local", None, "", "")
+    assert store._s3 is None
+
+
+async def test_result_store_backfills_history_on_startup(tmp_path):
+    """启用 S3 启动时：本地全部历史日期（非当天）由后台任务补传到 S3 对应对象。"""
+    # 先以 local 模式写入两天数据
+    local = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="local")
+    d1 = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    d2 = _result("t2", "success", datetime.now(timezone.utc))
+    await local.append(d1)
+    await local.append(d2)
+    date1 = d1.checked_at.astimezone().strftime("%Y-%m-%d")
+    date2 = d2.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert date1 != date2
+
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    # 补传由后台任务执行（启动不阻塞），等待其完成
+    for _ in range(200):
+        if not store._dirty_dates:
+            break
+        await asyncio.sleep(0.01)
+    assert {f"data/results/{d}.jsonl" for d in (date1, date2)} <= set(s3.objects)
+    assert not store._dirty_dates
+    # 补传后本地记录仍在（合并去重，不丢）
+    assert len(await store.recent(10)) == 2
+
+
+async def test_set_s3_mode_backfills_history(tmp_path, monkeypatch):
+    """热切换 local→both：本地历史数据由后台任务补传到 S3。"""
+    from app.models import S3Config
+
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="local")
+    d1 = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    d2 = _result("t2", "success", datetime.now(timezone.utc))
+    await store.append(d1)
+    await store.append(d2)
+    date1 = d1.checked_at.astimezone().strftime("%Y-%m-%d")
+    date2 = d2.checked_at.astimezone().strftime("%Y-%m-%d")
+
+    s3 = FakeS3()
+    # set_s3_mode 内部构造真实 minio 客户端（会发网络请求），monkeypatch 换 FakeS3
+    monkeypatch.setattr("app.storage.S3Storage", lambda _cfg, _id, _key: s3)
+    store.set_s3_mode(
+        "both",
+        S3Config(enabled=True, endpoint="http://x", bucket="test-bucket", datapath="data/"),
+        "id",
+        "key",
+    )
+    # 等待后台补传任务完成
+    for _ in range(200):
+        if not store._dirty_dates:
+            break
+        await asyncio.sleep(0.01)
+    assert not store._dirty_dates
+    assert {f"data/results/{d}.jsonl" for d in (date1, date2)} <= set(s3.objects)
+
+
+async def test_s3_sync_failure_retries_stale_date(tmp_path, caplog):
+    """当天同步失败后日期保留；S3 恢复后，下次 append 把失败日期一并补传。"""
+    import logging
+
+    s3 = FakeS3()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    old = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    s3.fail_put = True
+    with caplog.at_level(logging.ERROR, logger="app.storage"):
+        await store.append(old)
+    date_old = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert date_old in store._dirty_dates  # 失败日期保留待重试
+
+    s3.fail_put = False
+    caplog.clear()
+    fresh = _result("t2", "fail", datetime.now(timezone.utc))
+    await store.append(fresh)
+    date_fresh = fresh.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert not store._dirty_dates
+    expected = {f"data/results/{d}.jsonl" for d in (date_old, date_fresh)}
+    assert set(s3.objects) == expected
+
+
+async def test_s3_get_failure_never_overwrites_existing_object(tmp_path, caplog):
+    """S3 GET 失败（网络/权限）时跳过本次同步，绝不把对象覆盖成内存子集。"""
+    import logging
+
+    s3 = FakeS3()
+    # S3 上已有当天历史对象（含比内存窗口更老的记录）
+    old = _result("t0", "success", datetime.now(timezone.utc))
+    date = old.checked_at.astimezone().strftime("%Y-%m-%d")
+    object_name = f"data/results/{date}.jsonl"
+    s3.objects[object_name] = (old.model_dump_json() + "\n").encode()
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+
+    s3.fail_get = True
+    fresh = _result("t1", "fail", datetime.now(timezone.utc))
+    with caplog.at_level(logging.WARNING, logger="app.storage"):
+        await store.append(fresh)
+    # 对象未被覆盖（仍只含旧记录，内存子集未回写）；当天保留 dirty 待重试
+    assert any("deferring sync" in r.message for r in caplog.records)
+    assert s3.objects[object_name].decode().strip() == old.model_dump_json()
+    assert date in store._dirty_dates
+
+
+async def test_s3_sync_failure_does_not_block_other_dates(tmp_path):
+    """补传时一个日期失败不阻塞后续日期：其余日期照常同步，失败日期保留重试。"""
+    local = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="local")
+    d_old = _result("t1", "success", datetime.now(timezone.utc) - timedelta(hours=25))
+    d_new = _result("t2", "success", datetime.now(timezone.utc))
+    await local.append(d_old)
+    await local.append(d_new)
+    date_old = d_old.checked_at.astimezone().strftime("%Y-%m-%d")
+    date_new = d_new.checked_at.astimezone().strftime("%Y-%m-%d")
+    assert date_old != date_new
+
+    s3 = FakeS3()
+    s3.fail_put_objects = {f"data/results/{date_old}.jsonl"}
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="both", s3=s3)
+    # 轮询直到后台补传跑完一轮（失败日期保留、成功日期已上传）
+    for _ in range(200):
+        if f"data/results/{date_new}.jsonl" in s3.objects:
+            break
+        await asyncio.sleep(0.01)
+    assert f"data/results/{date_new}.jsonl" in s3.objects  # 未被失败日期阻塞
+    assert date_old in store._dirty_dates  # 失败日期保留待重试
+    assert date_new not in store._dirty_dates
+
+
+async def test_s3_mode_load_keeps_chronological_order(tmp_path):
+    """s3 模式加载：S3 对象返回顺序不保证时间序，内存 deque 仍按时间升序。"""
+    s3 = FakeS3()
+    older = _result("t1", "success", datetime.now(timezone.utc) - timedelta(days=2))
+    newer = _result("t2", "fail", datetime.now(timezone.utc))
+    date_older = older.checked_at.astimezone().strftime("%Y-%m-%d")
+    date_newer = newer.checked_at.astimezone().strftime("%Y-%m-%d")
+    # 对象以乱序写入（list_objects 可能按任意顺序返回）
+    s3.objects[f"data/results/{date_newer}.jsonl"] = (newer.model_dump_json() + "\n").encode()
+    s3.objects[f"data/results/{date_older}.jsonl"] = (older.model_dump_json() + "\n").encode()
+
+    store = ResultStore(tmp_path / "results.jsonl", 100, storage_mode="s3", s3=s3)
+    recent = await store.recent(10)
+    assert [r.id for r in recent] == [newer.id, older.id]  # 最新在前（时序正确）

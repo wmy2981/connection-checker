@@ -1,11 +1,14 @@
 """SSE 实时结果推送。"""
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.auth import require_auth
 from app.storage import ResultStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stream", tags=["stream"], dependencies=[Depends(require_auth)])
 
@@ -16,6 +19,8 @@ KEEPALIVE_INTERVAL = 15.0
 async def stream(request: Request) -> StreamingResponse:
     store: ResultStore = request.app.state.result_store
     queue = store.subscribe()
+    client = request.client.host if request.client else "?"
+    logger.debug("SSE client connected (client %s)", client)
 
     async def generate():
         try:
@@ -30,6 +35,7 @@ async def stream(request: Request) -> StreamingResponse:
                     yield ": keepalive\n\n"
         finally:
             store.unsubscribe(queue)
+            logger.debug("SSE client disconnected (client %s)", client)
 
     return StreamingResponse(
         generate(),

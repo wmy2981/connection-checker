@@ -58,6 +58,16 @@ class TargetBase(BaseModel):
     def _strip_ip(cls, v: str) -> str:
         return v.strip()
 
+    @field_validator("http_success_codes")
+    @classmethod
+    def _validate_http_codes(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        for code in v:
+            if not 100 <= code <= 599:
+                raise ValueError(f"状态码 {code} 不在 100-599 范围内")
+        return v
+
 
 class TargetCreate(TargetBase):
     pass
@@ -77,6 +87,16 @@ class TargetUpdate(BaseModel):
     url_path: str | None = Field(default=None, max_length=500)
     http_success_codes: list[int] | None = None
     timeout: float | None = Field(default=None, gt=0)
+
+    @field_validator("http_success_codes")
+    @classmethod
+    def _validate_http_codes(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return v
+        for code in v:
+            if not 100 <= code <= 599:
+                raise ValueError(f"状态码 {code} 不在 100-599 范围内")
+        return v
 
 
 class Target(TargetBase):
@@ -100,6 +120,7 @@ class CheckResult(BaseModel):
 
 class ResultFilter(BaseModel):
     status: str | None = None  # 逗号分隔多值（success,fail），空或 all 表示不筛
+    check_method: str | None = None  # 逗号分隔多值（ping,http），空表示不筛
     ip: str | None = None
     target_name: str | None = None
     target_id: str | None = None
@@ -151,6 +172,16 @@ class WebhookConfig(BaseModel):
     fail_threshold: int = Field(default=3, ge=1, le=100)  # 连续失败次数
 
 
+class S3Config(BaseModel):
+    """S3 兼容存储配置，存于 config.json 的 s3 节；凭据（access id/key）存 secrets.json。"""
+
+    enabled: bool = False
+    endpoint: str = Field(default="", max_length=500)  # S3 服务地址，如 https://s3.example.com
+    bucket: str = Field(default="", max_length=255)
+    region: str | None = Field(default=None, max_length=100)  # 可选，部分 S3 服务要求
+    datapath: str = Field(default="", max_length=500)  # 数据在 bucket 中的路径前缀
+
+
 class AppSettings(BaseModel):
     """全局检查参数，存于 config.json 的 app 节（非环境变量，前端可配置）。"""
 
@@ -160,3 +191,10 @@ class AppSettings(BaseModel):
     http_timeout: float = Field(default=5.0, gt=0, le=120)  # HTTP 超时（秒）
     stats_window: int = Field(default=50, ge=10, le=10_000)  # 仪表盘统计的近 N 次检查
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARN|ERROR)$")
+    # 日志自动清理：none=不清理 / delete=删除 n 天前日志 / upload=上传 S3 后删除本地
+    log_cleanup_mode: str = Field(default="delete", pattern="^(none|delete|upload)$")
+    log_retention_days: int = Field(default=30, ge=1, le=3650)
+    # 检查记录存储：local=仅本地 / s3=仅 S3 / both=双写（S3 永久保留）
+    storage_mode: str = Field(default="local", pattern="^(local|s3|both)$")
+    # 品牌图标：base64 data URI 或 http(s) URL，必须是正方形；null = 用默认图标
+    brand_icon: str | None = Field(default=None, max_length=2_000_000)
