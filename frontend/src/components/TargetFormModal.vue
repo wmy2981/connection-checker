@@ -182,6 +182,8 @@ function submit() {
       size="huge"
       role="dialog"
       aria-modal="true"
+      closable
+      @close="emit('update:show', false)"
     >
       <n-form label-placement="left" label-width="90">
         <n-form-item v-if="target" label="目标 ID">

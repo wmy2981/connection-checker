@@ -1302,6 +1302,8 @@ const columns: DataTableColumns<Target> = [
       size="huge"
       role="dialog"
       aria-modal="true"
+      closable
+      @close="showBackups = false"
     >
       <n-space vertical size="large">
         <n-space justify="space-between" align="center" wrap>
