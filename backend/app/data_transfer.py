@@ -9,6 +9,7 @@
 import json
 import logging
 import re
+import secrets
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,8 @@ logger = logging.getLogger(__name__)
 # 导出包标识：导入时据此识别「本应用导出的数据包」
 MANIFEST_APP = "connection-checker"
 MANIFEST_SCHEMA = 1
-# 备份文件名：默认 backup-YYYYMMDD-HHMMSS.zip，支持重命名为任意安全 .zip 文件名
+# 备份文件名：自动创建为 backup-<随机哈希>.zip（唯一性，见 create_backup），
+# 兼容旧格式 backup-YYYYMMDD-HHMMSS.zip；支持重命名为任意安全 .zip 文件名
 # （不以 . 或路径分隔符开头、不含 / 与 \、以 .zip 结尾，防路径穿越）
 BACKUP_NAME_RE = re.compile(r"^[^./\\][^/\\]{0,200}\.zip$")
 
@@ -158,8 +160,12 @@ async def apply_import(
 
 
 def create_backup(data_dir: Path) -> Path:
-    """创建备份 zip（内容与导出相同，不含密钥）。返回备份文件路径。"""
-    name = f"backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    """创建备份 zip（内容与导出相同，不含密钥）。返回备份文件路径。
+
+    文件名用随机哈希保证唯一：秒级时间戳命名在同一秒内重复创建（如恢复前
+    自动备份撞上手动创建）会互相覆盖。
+    """
+    name = f"backup-{secrets.token_hex(6)}.zip"
     path = backup_dir(data_dir) / name
     build_package(path, data_dir)
     return path

@@ -331,7 +331,6 @@ def test_backup_rename(logged_client: TestClient, settings):
     assert resp.json()["name"] == new_name
     names = [b["name"] for b in logged_client.get("/api/v1/data/backups").json()["backups"]]
     assert new_name in names and old not in names
-    # 旧名 404（须在 restore 之前断言：restore 的自动备份可能复用该秒级文件名）
     assert logged_client.get(f"/api/v1/data/backups/{old}/download").status_code == 404
     # 重命名后的备份可下载/恢复（恢复只看 zip 内容合法与否，与文件名无关）
     assert logged_client.get(f"/api/v1/data/backups/{encoded}/download").status_code == 200
@@ -340,10 +339,6 @@ def test_backup_rename(logged_client: TestClient, settings):
     )
     assert restored.status_code == 200
     # 重命名为已存在的备份名 → 409（拒绝覆盖）
-    # 两次创建须跨秒：create_backup 以秒级时间戳命名，同秒会重名覆盖
-    import time
-
-    time.sleep(1.1)
     name2 = logged_client.post("/api/v1/data/backups", json={}).json()["name"]
     conflict = logged_client.put(
         f"/api/v1/data/backups/{name2}/rename", json={"new_name": new_name}
