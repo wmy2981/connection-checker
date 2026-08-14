@@ -53,8 +53,10 @@ async function downloadExport(
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     const cd = res.headers.get('Content-Disposition')
+    // 中文文件名走 RFC 5987 filename*=UTF-8''...（HTTP 头仅 latin-1），优先解析它
+    const star = cd?.match(/filename\*=UTF-8''([^;]+)/)
     const m = cd?.match(/filename="([^"]+)"/)
-    a.download = m?.[1] ?? fallbackName
+    a.download = star ? decodeURIComponent(star[1]) : (m?.[1] ?? fallbackName)
     a.href = url
     a.click()
     URL.revokeObjectURL(url)
@@ -201,6 +203,11 @@ export const api = {
     request<ImportStats & { ok: boolean }>(
       `/data/backups/${encodeURIComponent(name)}/restore`,
       { method: 'POST', body: JSON.stringify(include) },
+    ),
+  renameBackup: (name: string, newName: string) =>
+    request<{ ok: boolean; name: string }>(
+      `/data/backups/${encodeURIComponent(name)}/rename`,
+      { method: 'PUT', body: JSON.stringify({ new_name: newName }) },
     ),
   downloadBackup: (name: string) =>
     downloadExport(`/api/v1/data/backups/${encodeURIComponent(name)}/download`, {}, name),

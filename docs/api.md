@@ -465,8 +465,9 @@ es.addEventListener('result', (e) => {
 
 - `POST /data/backups`：创建备份（内容同导出，不含密钥）。成功 `200`：`{ "ok": true, "name": "backup-YYYYMMDD-HHMMSS.zip", "size": N }`
 - `GET /data/backups`：备份列表（新→旧）`{ "backups": [{ "name", "size", "created_at" }] }`
+- `PUT /data/backups/{name}/rename`：重命名备份。JSON body `{ "new_name": "周备份.zip" }`；新名非法 `422`、旧名不存在 `404`、目标已存在 `409`（拒绝覆盖）。成功 `200`：`{ "ok": true, "name": "..." }`
 - `POST /data/backups/{name}/restore`：从备份恢复。JSON body 与导入相同的三项 `include_records / include_targets / include_settings`（至少一项）；恢复前自动备份当前数据
-- `GET /data/backups/{name}/download`：下载备份 zip（备份文件保留）
+- `GET /data/backups/{name}/download`：下载备份 zip（备份文件保留；中文文件名以 RFC 5987 `filename*` 编码）
 - `DELETE /data/backups/{name}`：删除备份（备份全量保留、手动删除，无自动清理）
 
-备份文件名严格匹配 `backup-YYYYMMDD-HHMMSS.zip`：不匹配 `422`，不存在 `404`。
+备份文件名默认 `backup-YYYYMMDD-HHMMSS.zip`，支持重命名为任意安全 `.zip` 文件名（不以 `.` 或路径分隔符开头、不含 `/` 与 `\`、以 `.zip` 结尾）；不安全 `422`，不存在 `404`。下载的 `Content-Disposition` 对非 ASCII 文件名使用 `filename*=UTF-8''...`。
