@@ -205,15 +205,21 @@
 | `log_cleanup_mode` | 日志清理：`none` 不清理 / `delete` 删除 n 天前 / `upload` 上传 S3 后删除本地 |
 | `log_retention_days` | 日志保留天数，默认 30 |
 | `storage_mode` | 检查记录存储：`local` 仅本地 / `s3` 仅 S3 / `both` 本地+S3 双写（S3 按天对象永久保留） |
-| `brand_icon` | 品牌图标：base64 data URI 或 http(s) URL，必须为正方形；`null` = 默认图标 |
+| `brand_icon` | 品牌图标：base64 data URI 或 http(s) URL，必须为正方形；`null` = 默认图标。data URI 保存时由服务端转存为 `data/custom.<ext>` 文件，**配置文件只存文件名**（不再存 base64 明文）；响应中文件名以图标端点 URL 形式返回（见下） |
 
 ### PUT /settings/app
 
 更新配置，请求体同上（全量提交）。成功：`200`，返回更新后的配置。
 
 - `result_max_records` 修改立即生效，超出部分即时裁剪
-- `brand_icon` 服务端校验：支持 PNG/JPEG/GIF/WebP/SVG，必须正方形（URL 会下载校验，超时 10s），非正方形或无法解析：`422`
+- `brand_icon` 服务端校验：支持 PNG/JPEG/GIF/WebP/SVG，必须正方形（URL 会下载校验，超时 10s），非正方形或无法解析：`422`；data URI 解码后超过 1MB：`422`
+- data URI 保存语义：解码校验后写入 `data/custom.<ext>`（扩展名按 mime/内容推断），替换旧 `custom.*` 文件，配置文件存文件名；`null`/空串清除文件与配置；图标端点 URL（`/api/v1/settings/brand-icon`）作为值提交时幂等保持当前文件
+- 响应中 `brand_icon` 三种形态：`null`（默认图标）、http(s) URL 原文、图标端点 URL `/api/v1/settings/brand-icon?v=<mtime>`（文件图标，带版本号防缓存）
 - `log_cleanup_mode=upload` 或 `storage_mode=s3/both` 依赖 S3：未完整配置 S3（含凭据）时返回 `422`
+
+### GET /settings/brand-icon
+
+输出自定义品牌图标文件（`data/custom.<ext>`）。**免认证**（登录页与未登录的浏览器 tab 也要能显示）；文件不存在 `404`。
 
 ## 告警设置
 

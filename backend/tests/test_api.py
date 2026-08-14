@@ -841,23 +841,33 @@ def test_api_token_requires_json_content_type(logged_client: TestClient):
     assert resp.status_code == 415
 
 
-def test_brand_icon_validation(logged_client: TestClient):
-    """品牌图标：正方形 data URI 可保存，非正方形/非法来源被 422 拒绝。"""
-    import base64
+def _png_data(w: int, h: int) -> bytes:
     import struct
 
-    def png_uri(w: int, h: int) -> str:
-        sig = b"\x89PNG\r\n\x1a\n"
-        ihdr = b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", w, h) + b"\x08\x06\x00\x00\x00"
-        return "data:image/png;base64," + base64.b64encode(sig + ihdr).decode()
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", w, h) + b"\x08\x06\x00\x00\x00"
+    return sig + ihdr
 
+
+def _png_uri(w: int, h: int) -> str:
+    import base64
+
+    return "data:image/png;base64," + base64.b64encode(_png_data(w, h)).decode()
+
+
+def test_brand_icon_validation(logged_client: TestClient):
+    """品牌图标：正方形 data URI 可保存（转存文件），非正方形/非法来源被 422 拒绝。"""
     cfg = logged_client.get("/api/v1/settings/app").json()
-    cfg["brand_icon"] = png_uri(32, 32)
+    cfg["brand_icon"] = _png_uri(32, 32)
     resp = logged_client.put("/api/v1/settings/app", json=cfg)
     assert resp.status_code == 200
-    assert resp.json()["brand_icon"] == cfg["brand_icon"]
+    # 保存后返回图标端点 URL（文件转存断言见 test_brand_icon_stored_as_file）
+    assert resp.json()["brand_icon"].startswith("/api/v1/settings/brand-icon?v=")
+    # 输入框里的端点引用再次保存：幂等通过（保持当前文件）
+    cfg["brand_icon"] = resp.json()["brand_icon"]
+    assert logged_client.put("/api/v1/settings/app", json=cfg).status_code == 200
 
-    cfg["brand_icon"] = png_uri(32, 16)
+    cfg["brand_icon"] = _png_uri(32, 16)
     resp = logged_client.put("/api/v1/settings/app", json=cfg)
     assert resp.status_code == 422
     assert "正方形" in resp.json()["detail"]
@@ -866,11 +876,82 @@ def test_brand_icon_validation(logged_client: TestClient):
     resp = logged_client.put("/api/v1/settings/app", json=cfg)
     assert resp.status_code == 422
 
-    # 清空回默认
+    # 清空回默认（文件删除断言见 test_brand_icon_stored_as_file）
     cfg["brand_icon"] = None
     resp = logged_client.put("/api/v1/settings/app", json=cfg)
     assert resp.status_code == 200
     assert resp.json()["brand_icon"] is None
+
+
+def test_brand_icon_stored_as_file(
+    logged_client: TestClient, client: TestClient, settings, monkeypatch
+):
+    """品牌图标转存文件：data URI → data/custom.<ext>（配置只存文件名）、
+    替换删除旧文件、清除删文件、GET 端点免认证、URL 原样保存、超 1MB 拒绝。"""
+    import base64
+    import json
+
+    def jpeg_uri() -> str:
+        import struct
+
+        sof0 = (
+            b"\xff\xc0\x00\x0b\x08"
+            + struct.pack(">HH", 32, 32)
+            + b"\x03\x01\x22\x00\x02\x11\x01\x03"
+        )
+        header = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        return "data:image/jpeg;base64," + base64.b64encode(header + sof0 + b"\xff\xd9").decode()
+
+    cfg = logged_client.get("/api/v1/settings/app").json()
+    # data URI → 转存 custom.png，配置文件只存文件名（不再存 base64）
+    cfg["brand_icon"] = _png_uri(32, 32)
+    assert logged_client.put("/api/v1/settings/app", json=cfg).status_code == 200
+    png_file = settings.data_dir / "custom.png"
+    assert png_file.is_file()
+    raw = json.loads((settings.data_dir / "config.json").read_text(encoding="utf-8"))
+    assert raw["app"]["brand_icon"] == "custom.png"
+
+    # GET /settings/app 返回端点 URL（带版本号）；GET /brand-icon 免认证可访问
+    got = logged_client.get("/api/v1/settings/app").json()
+    assert got["brand_icon"] == f"/api/v1/settings/brand-icon?v={int(png_file.stat().st_mtime)}"
+    img = client.get("/api/v1/settings/brand-icon")  # 未登录
+    assert img.status_code == 200
+    assert img.headers["content-type"] == "image/png"
+    assert img.content.startswith(b"\x89PNG")
+
+    # 换用 JPEG：新文件 custom.jpg，旧 custom.png 被删除
+    cfg["brand_icon"] = jpeg_uri()
+    assert logged_client.put("/api/v1/settings/app", json=cfg).status_code == 200
+    assert (settings.data_dir / "custom.jpg").is_file()
+    assert not (settings.data_dir / "custom.png").exists()
+
+    # http(s) URL：校验后原样保存（不转文件、不删已存文件）
+    class FakeResp:
+        headers = {"content-type": "image/png"}
+        content = _png_data(20, 20)
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr("httpx.get", lambda url, timeout, follow_redirects: FakeResp())
+    cfg["brand_icon"] = "https://example.com/icon.png"
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 200
+    assert resp.json()["brand_icon"] == "https://example.com/icon.png"
+    assert (settings.data_dir / "custom.jpg").is_file()
+
+    # 解码后超过 1MB → 422（校验头合法，仅大小超限）
+    big = base64.b64encode(_png_data(32, 32) + b"\x00" * (1024 * 1024)).decode()
+    cfg["brand_icon"] = "data:image/png;base64," + big
+    resp = logged_client.put("/api/v1/settings/app", json=cfg)
+    assert resp.status_code == 422
+    assert "1MB" in resp.json()["detail"] or "1024KB" in resp.json()["detail"]
+
+    # 清除：文件全部删除、配置置空
+    cfg["brand_icon"] = None
+    assert logged_client.put("/api/v1/settings/app", json=cfg).status_code == 200
+    assert not list(settings.data_dir.glob("custom.*"))
+    assert logged_client.get("/api/v1/settings/app").json()["brand_icon"] is None
 
 
 def test_s3_dependent_settings_rejected_without_s3(logged_client: TestClient):

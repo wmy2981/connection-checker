@@ -567,7 +567,10 @@ async function saveBrandIcon() {
   }
   brandSaving.value = true
   try {
-    appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    const saved = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    appSettings.value = saved
+    // base64 已由后端转存为服务器文件，输入框显示文件 URL（所见即所存）
+    brandIconInput.value = saved.brand_icon ?? ''
     window.dispatchEvent(new Event('cc-brand-icon-changed'))
     message.success('品牌图标已保存')
   } catch (e) {
@@ -1276,7 +1279,7 @@ const columns: DataTableColumns<Target> = [
               <span class="label">图标</span>
               <n-input
                 v-model:value="brandIconInput"
-                placeholder="图片 URL 或 base64 data URI（data:image/png;base64,...）"
+                placeholder="图片 URL 或 base64 data URI；base64 将转存为服务器文件（限 1MB）"
                 :maxlength="2000000"
                 clearable
                 style="width: 420px"
