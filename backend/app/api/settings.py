@@ -2,12 +2,14 @@
 import asyncio
 import logging
 import secrets
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.auth import require_auth
-from app.icon_validate import validate_icon
+from app.icon_validate import image_ext, parse_data_uri, validate_icon
 from app.models import AppSettings, S3Config, WebhookConfig
 from app.notifier import Notifier
 from app.s3_storage import S3Storage
@@ -16,10 +18,78 @@ from app.storage import ConfigStore, SecretsStore
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_auth)])
+# 品牌图标文件端点（免认证：登录页与未登录的浏览器 tab 也要能显示图标）
+public_router = APIRouter(prefix="/settings", tags=["settings"])
+
+# 自定义图标文件：存 data/custom.<ext>，配置里只存文件名（不再存 base64 明文）
+ICON_URL_PATH = "/api/v1/settings/brand-icon"
+ICON_MAX_BYTES = 1024 * 1024
 
 
 def _get_config_store(request: Request) -> ConfigStore:
     return request.app.state.config_store
+
+
+def _find_custom_icon(data_dir: Path) -> Path | None:
+    """返回 data 目录下当前自定义图标文件（custom.<ext>，排除临时文件）。"""
+    for f in sorted(data_dir.glob("custom.*")):
+        if f.is_file() and f.suffix != ".tmp":
+            return f
+    return None
+
+
+def _remove_custom_icons(data_dir: Path, keep: str | None = None) -> None:
+    """删除 data 目录下除 keep 外的全部自定义图标文件（单个失败不中断）。"""
+    for f in data_dir.glob("custom.*"):
+        if f.is_file() and f.name != keep:
+            try:
+                f.unlink()
+            except OSError as e:
+                logger.warning("Custom icon cleanup failed (%s): %s", f.name, e)
+
+
+def _write_icon_atomic(path: Path, data: bytes) -> None:
+    """原子写图标文件：同目录临时文件 + replace。"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
+def _normalize_brand_icon(data_dir: Path, value: str | None) -> str | None:
+    """把 PUT /settings/app 收到的品牌图标规范化为配置存储值：
+
+    - None / 空串 → 删除已存 custom.* 文件，返回 None
+    - data URI → 校验（正方形/格式/≤1MB）后转存 data/custom.<ext>，返回文件名
+    - 图标端点引用（保存后输入框里的 URL）→ 返回当前文件名（文件不存在则 None）
+    - http(s) URL → 校验后原样返回
+    """
+    if not value:
+        _remove_custom_icons(data_dir)
+        return None
+    if value.startswith(ICON_URL_PATH):
+        f = _find_custom_icon(data_dir)
+        return f.name if f else None
+    if value.startswith("data:"):
+        validate_icon(value)  # 正方形与格式校验（URL 校验在 else 分支）
+        mime, data = parse_data_uri(value)
+        if len(data) > ICON_MAX_BYTES:
+            raise ValueError(f"图片超过 {ICON_MAX_BYTES // 1024}KB 限制")
+        ext = image_ext(mime, data)
+        _write_icon_atomic(data_dir / f"custom.{ext}", data)
+        _remove_custom_icons(data_dir, keep=f"custom.{ext}")
+        return f"custom.{ext}"
+    validate_icon(value)  # http(s) URL：下载并校验
+    return value
+
+
+def _brand_icon_response(data_dir: Path, value: str | None) -> str | None:
+    """把配置里的品牌图标值转为前端可用形式：文件名 → 图标端点 URL（带版本号）。"""
+    if value and not value.startswith(("data:", "http://", "https://")):
+        f = _find_custom_icon(data_dir)
+        if f:
+            return f"{ICON_URL_PATH}?v={int(f.stat().st_mtime)}"
+        return None
+    return value
 
 
 class WebhookTestRequest(BaseModel):
@@ -47,18 +117,24 @@ async def update_webhook(request: Request, payload: WebhookConfig) -> WebhookCon
 
 @router.get("/app")
 async def get_app_settings(request: Request) -> AppSettings:
-    return await _get_config_store(request).get_app_settings()
+    saved = await _get_config_store(request).get_app_settings()
+    saved.brand_icon = _brand_icon_response(request.app.state.settings.data_dir, saved.brand_icon)
+    return saved
 
 
 @router.put("/app")
 async def update_app_settings(request: Request, payload: AppSettings) -> AppSettings:
     store = _get_config_store(request)
-    if payload.brand_icon:
-        try:
-            await asyncio.to_thread(validate_icon, payload.brand_icon)
-        except ValueError as e:
-            logger.error("Brand icon validation failed: %s", e)
-            raise HTTPException(status_code=422, detail=f"品牌图标无效: {e}") from None
+    data_dir = request.app.state.settings.data_dir
+    # 品牌图标：data URI 转存为 data/custom.<ext> 文件（配置只存文件名），
+    # URL 原样保存、端点引用保持当前文件；None/空串清除文件
+    try:
+        payload.brand_icon = await asyncio.to_thread(
+            _normalize_brand_icon, data_dir, payload.brand_icon
+        )
+    except ValueError as e:
+        logger.error("Brand icon validation failed: %s", e)
+        raise HTTPException(status_code=422, detail=f"品牌图标无效: {e}") from None
     # 依赖 S3 的选项要求 S3 已完整配置（含凭据），避免保存后静默退化为本地
     needs_s3 = payload.log_cleanup_mode == "upload" or payload.storage_mode in ("s3", "both")
     if needs_s3:
@@ -81,14 +157,25 @@ async def update_app_settings(request: Request, payload: AppSettings) -> AppSett
     request.app.state.result_store.resize(saved.result_max_records)
     logger.info(
         "App settings updated: storage_mode=%s log_level=%s cleanup_mode=%s "
-        "result_max_records=%d stats_window=%d",
+        "result_max_records=%d stats_window=%d brand_icon=%s",
         saved.storage_mode,
         saved.log_level,
         saved.log_cleanup_mode,
         saved.result_max_records,
         saved.stats_window,
+        saved.brand_icon,
     )
+    saved.brand_icon = _brand_icon_response(data_dir, saved.brand_icon)
     return saved
+
+
+@public_router.get("/brand-icon")
+async def get_brand_icon(request: Request) -> FileResponse:
+    """输出自定义品牌图标文件（免认证：登录页与未登录的浏览器 tab 也要能显示）。"""
+    f = _find_custom_icon(request.app.state.settings.data_dir)
+    if not f:
+        raise HTTPException(status_code=404, detail="自定义图标不存在")
+    return FileResponse(f)
 
 
 class S3ConfigPayload(S3Config):

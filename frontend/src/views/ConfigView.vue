@@ -110,6 +110,10 @@ const backups = ref<BackupInfo[]>([])
 const backupsLoading = ref(false)
 const backupCreating = ref(false)
 const backupDeleting = ref<string | null>(null)
+const showRename = ref(false)
+const renamingBackup = ref('')
+const renameInput = ref('')
+const renameSaving = ref(false)
 
 async function exportData() {
   try {
@@ -232,6 +236,35 @@ async function removeBackup(name: string) {
   }
 }
 
+function openRename(name: string) {
+  renamingBackup.value = name
+  renameInput.value = name
+  showRename.value = true
+}
+
+async function submitRename() {
+  const newName = renameInput.value.trim()
+  if (!newName) {
+    message.warning('请输入新文件名')
+    return
+  }
+  if (!/\.zip$/i.test(newName) || /[/\\]/.test(newName) || newName.startsWith('.')) {
+    message.error('文件名必须以 .zip 结尾，且不含路径分隔符、不能以点开头')
+    return
+  }
+  renameSaving.value = true
+  try {
+    const r = await api.renameBackup(renamingBackup.value, newName)
+    message.success(`已重命名为 ${r.name}`)
+    showRename.value = false
+    await loadBackups()
+  } catch (e) {
+    message.error(errText(e))
+  } finally {
+    renameSaving.value = false
+  }
+}
+
 const backupColumns = computed<DataTableColumns<BackupInfo>>(() => [
   { title: '文件名', key: 'name' },
   {
@@ -266,6 +299,11 @@ const backupColumns = computed<DataTableColumns<BackupInfo>>(() => [
             NButton,
             { size: 'tiny', secondary: true, onClick: () => downloadBackup(r.name) },
             { default: () => '下载' },
+          ),
+          h(
+            NButton,
+            { size: 'tiny', secondary: true, onClick: () => openRename(r.name) },
+            { default: () => '重命名' },
           ),
           h(
             NPopconfirm,
@@ -529,7 +567,10 @@ async function saveBrandIcon() {
   }
   brandSaving.value = true
   try {
-    appSettings.value = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    const saved = await api.updateAppSettings({ ...appSettings.value, brand_icon: icon })
+    appSettings.value = saved
+    // base64 已由后端转存为服务器文件，输入框显示文件 URL（所见即所存）
+    brandIconInput.value = saved.brand_icon ?? ''
     window.dispatchEvent(new Event('cc-brand-icon-changed'))
     message.success('品牌图标已保存')
   } catch (e) {
@@ -1238,7 +1279,7 @@ const columns: DataTableColumns<Target> = [
               <span class="label">图标</span>
               <n-input
                 v-model:value="brandIconInput"
-                placeholder="图片 URL 或 base64 data URI（data:image/png;base64,...）"
+                placeholder="图片 URL 或 base64 data URI；base64 将转存为服务器文件（限 1MB）"
                 :maxlength="2000000"
                 clearable
                 style="width: 420px"
@@ -1302,6 +1343,8 @@ const columns: DataTableColumns<Target> = [
       size="huge"
       role="dialog"
       aria-modal="true"
+      closable
+      @close="showBackups = false"
     >
       <n-space vertical size="large">
         <n-space justify="space-between" align="center" wrap>
@@ -1318,6 +1361,33 @@ const columns: DataTableColumns<Target> = [
           :loading="backupsLoading"
           size="small"
         />
+      </n-space>
+    </n-card>
+  </n-modal>
+
+  <n-modal v-model:show="showRename">
+    <n-card
+      style="width: 420px; max-width: 94vw"
+      title="重命名备份"
+      :bordered="false"
+      size="huge"
+      role="dialog"
+      aria-modal="true"
+      closable
+      @close="showRename = false"
+    >
+      <n-space vertical size="large">
+        <span class="hint">原文件名：{{ renamingBackup }}</span>
+        <n-input
+          v-model:value="renameInput"
+          placeholder="新文件名（.zip 结尾）"
+          :maxlength="255"
+          @keydown.enter="submitRename"
+        />
+        <n-space justify="end">
+          <n-button @click="showRename = false">取消</n-button>
+          <n-button type="primary" :loading="renameSaving" @click="submitRename">确定</n-button>
+        </n-space>
       </n-space>
     </n-card>
   </n-modal>

@@ -14,20 +14,41 @@ logger = logging.getLogger(__name__)
 _DATA_URI_RE = re.compile(r"^data:([^;,]+);base64,(.+)$", re.S)
 
 
+def parse_data_uri(value: str) -> tuple[str, bytes]:
+    """解析 base64 data URI，返回 (mime, 解码字节)；不合法抛 ValueError。"""
+    m = _DATA_URI_RE.match(value)
+    if not m:
+        raise ValueError("无效的 data URI，应为 data:<mime>;base64,<内容>")
+    mime = m.group(1).lower()
+    try:
+        data = base64.b64decode(m.group(2), validate=True)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"base64 解码失败: {e}") from None
+    if not data:
+        raise ValueError("图片数据为空")
+    return mime, data
+
+
+def image_ext(mime: str, data: bytes) -> str:
+    """按 data URI mime 与内容 magic 推断文件扩展名（不含点）；无法识别抛 ValueError。"""
+    if mime == "image/svg+xml":
+        return "svg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    raise ValueError("无法识别图片格式")
+
+
 def validate_icon(value: str) -> tuple[int, int]:
     """解析并校验图标来源，返回 (width, height)；不合法或非正方形抛 ValueError。"""
     value = value.strip()
     if value.startswith("data:"):
-        m = _DATA_URI_RE.match(value)
-        if not m:
-            raise ValueError("无效的 data URI，应为 data:<mime>;base64,<内容>")
-        mime = m.group(1).lower()
-        try:
-            data = base64.b64decode(m.group(2), validate=True)
-        except Exception as e:  # noqa: BLE001
-            raise ValueError(f"base64 解码失败: {e}") from None
-        if not data:
-            raise ValueError("图片数据为空")
+        mime, data = parse_data_uri(value)
     elif value.startswith(("http://", "https://")):
         mime, data = _fetch(value)
     else:

@@ -75,6 +75,8 @@ function submit() {
       size="huge"
       role="dialog"
       aria-modal="true"
+      closable
+      @close="emit('update:show', false)"
     >
       <n-space vertical size="large">
         <template v-if="mode === 'import'">

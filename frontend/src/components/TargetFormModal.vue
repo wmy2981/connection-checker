@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, reactive, ref, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import {
   NButton,
   NCard,
@@ -14,7 +14,6 @@ import {
   NTimePicker,
   useMessage,
 } from 'naive-ui'
-import type { InputInst } from 'naive-ui'
 
 import { copyText } from '@/composables/useClipboard'
 import type { CheckMethod, Target, TargetInput, TimeRange } from '@/types'
@@ -27,7 +26,6 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const saving = ref(false)
-const ipInputRef = ref<InputInst | null>(null)
 
 const form = reactive({
   name: '',
@@ -80,11 +78,8 @@ const codeOptions = [
 
 watch(
   () => [props.show, props.target],
-  async () => {
+  () => {
     if (!props.show) return
-    // 弹窗打开后自动聚焦 IP 输入框，减少一次点击
-    await nextTick()
-    ipInputRef.value?.focus()
     const t = props.target
     form.name = t?.name ?? ''
     form.ip = t?.ip ?? ''
@@ -187,6 +182,8 @@ function submit() {
       size="huge"
       role="dialog"
       aria-modal="true"
+      closable
+      @close="emit('update:show', false)"
     >
       <n-form label-placement="left" label-width="90">
         <n-form-item v-if="target" label="目标 ID">
@@ -200,7 +197,6 @@ function submit() {
         </n-form-item>
         <n-form-item label="IP / 主机名" required>
           <n-input
-            ref="ipInputRef"
             v-model:value="form.ip"
             placeholder="如 8.8.8.8 或 example.com"
             :maxlength="255"

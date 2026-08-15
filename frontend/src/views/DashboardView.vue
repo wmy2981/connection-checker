@@ -808,7 +808,16 @@ const columns: DataTableColumns<CheckResult> = [
   </n-layout>
 
   <n-modal v-model:show="showDetail">
-    <n-card style="width: 600px; max-width: 94vw" title="检查详情" :bordered="false" size="huge" role="dialog" aria-modal="true">
+    <n-card
+      style="width: 600px; max-width: 94vw"
+      title="检查详情"
+      :bordered="false"
+      size="huge"
+      role="dialog"
+      aria-modal="true"
+      closable
+      @close="showDetail = false"
+    >
       <n-descriptions v-if="detail" label-placement="left" :column="1" bordered size="small">
         <n-descriptions-item label="时间">{{ formatTime(detail.checked_at) }}</n-descriptions-item>
         <n-descriptions-item label="目标">{{ detail.target_name ? `${detail.target_name} (${detail.ip})` : detail.ip }}</n-descriptions-item>

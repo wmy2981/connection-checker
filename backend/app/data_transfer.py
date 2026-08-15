@@ -9,6 +9,7 @@
 import json
 import logging
 import re
+import secrets
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -22,8 +23,10 @@ logger = logging.getLogger(__name__)
 # 导出包标识：导入时据此识别「本应用导出的数据包」
 MANIFEST_APP = "connection-checker"
 MANIFEST_SCHEMA = 1
-# 备份文件名：backup-YYYYMMDD-HHMMSS.zip（严格匹配，防路径穿越）
-BACKUP_NAME_RE = re.compile(r"^backup-\d{8}-\d{6}\.zip$")
+# 备份文件名：自动创建为 backup-<随机哈希>.zip（唯一性，见 create_backup），
+# 兼容旧格式 backup-YYYYMMDD-HHMMSS.zip；支持重命名为任意安全 .zip 文件名
+# （不以 . 或路径分隔符开头、不含 / 与 \、以 .zip 结尾，防路径穿越）
+BACKUP_NAME_RE = re.compile(r"^[^./\\][^/\\]{0,200}\.zip$")
 
 
 def backup_dir(data_dir: Path) -> Path:
@@ -157,8 +160,12 @@ async def apply_import(
 
 
 def create_backup(data_dir: Path) -> Path:
-    """创建备份 zip（内容与导出相同，不含密钥）。返回备份文件路径。"""
-    name = f"backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    """创建备份 zip（内容与导出相同，不含密钥）。返回备份文件路径。
+
+    文件名用随机哈希保证唯一：秒级时间戳命名在同一秒内重复创建（如恢复前
+    自动备份撞上手动创建）会互相覆盖。
+    """
+    name = f"backup-{secrets.token_hex(6)}.zip"
     path = backup_dir(data_dir) / name
     build_package(path, data_dir)
     return path
@@ -167,7 +174,8 @@ def create_backup(data_dir: Path) -> Path:
 def list_backups(data_dir: Path) -> list[dict]:
     """备份列表（新→旧）：name / size / created_at（本地时间 ISO）。"""
     entries = []
-    for f in sorted(backup_dir(data_dir).glob("backup-*.zip"), reverse=True):
+    # 备份可被重命名为任意 .zip 名，故按全部 zip 列举（目录只存放备份文件）
+    for f in sorted(backup_dir(data_dir).glob("*.zip"), reverse=True):
         st = f.stat()
         entries.append(
             {
@@ -189,3 +197,20 @@ def resolve_backup(data_dir: Path, name: str) -> Path:
     if not path.is_file():
         raise FileNotFoundError("备份不存在")
     return path
+
+
+def rename_backup(data_dir: Path, old_name: str, new_name: str) -> Path:
+    """重命名备份文件。
+
+    新名须匹配 BACKUP_NAME_RE（防路径穿越）；目标已存在抛 FileExistsError（拒绝覆盖），
+    其余错误语义同 resolve_backup。返回新路径。
+    """
+    if not BACKUP_NAME_RE.match(new_name):
+        raise ValueError("非法的备份文件名")
+    src = resolve_backup(data_dir, old_name)
+    dst = backup_dir(data_dir) / new_name
+    if dst.exists():
+        raise FileExistsError("目标备份已存在")
+    dst = src.rename(dst)
+    logger.info("Backup renamed: %s -> %s", old_name, new_name)
+    return dst

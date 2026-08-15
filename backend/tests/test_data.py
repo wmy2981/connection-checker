@@ -292,8 +292,16 @@ def test_backup_flow(logged_client: TestClient, settings):
 
 
 def test_backup_name_validation(logged_client: TestClient, settings):
-    # 不含「backup-YYYYMMDD-HHMMSS.zip」模式的名字一律 422（防路径穿越/任意文件访问）
-    bad_names = ("backup-123.zip", "config.json", "hack.zip;rm", "backup-20260813-120000.txt")
+    # 不安全的备份名一律 422（防路径穿越/任意文件访问）：
+    # 非 .zip 结尾、以 . 开头（含分隔符的穿越名在 URL 层即被 HTTP 客户端规范化，
+    # 无法到达路由；该防御由 rename 端点的 body 用例覆盖）
+    bad_names = (
+        "config.json",
+        "backup-20260813-120000.txt",
+        "..zip",
+        ".hidden.zip",
+        "backup.zip;rm",
+    )
     for bad in bad_names:
         assert logged_client.get(f"/api/v1/data/backups/{bad}/download").status_code == 422
         assert logged_client.delete(f"/api/v1/data/backups/{bad}").status_code == 422
@@ -301,8 +309,53 @@ def test_backup_name_validation(logged_client: TestClient, settings):
             f"/api/v1/data/backups/{bad}/restore", json={"include_records": True}
         )
         assert restore.status_code == 422
-    # 模式合法但文件不存在 → 404
-    assert (
-        logged_client.get("/api/v1/data/backups/backup-20260813-120000.zip/download").status_code
-        == 404
+    # 合法名字（含自定义重命名名）但文件不存在 → 404
+    for ok_name in ("backup-20260813-120000.zip", "backup-123.zip", "自定义备份.zip"):
+        assert (
+            logged_client.get(f"/api/v1/data/backups/{ok_name}/download").status_code == 404
+        )
+
+
+def test_backup_rename(logged_client: TestClient, settings):
+    """备份重命名：新名可列表/下载/删除、旧名 404、重名 409、非法名 422。"""
+    from urllib.parse import quote
+
+    old = logged_client.post("/api/v1/data/backups", json={}).json()["name"]
+    new_name = "周备份.zip"
+    encoded = quote(new_name)
+    # 重命名成功：新名出现在列表、旧名 404
+    resp = logged_client.put(
+        f"/api/v1/data/backups/{old}/rename", json={"new_name": new_name}
     )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == new_name
+    names = [b["name"] for b in logged_client.get("/api/v1/data/backups").json()["backups"]]
+    assert new_name in names and old not in names
+    assert logged_client.get(f"/api/v1/data/backups/{old}/download").status_code == 404
+    # 重命名后的备份可下载/恢复（恢复只看 zip 内容合法与否，与文件名无关）
+    assert logged_client.get(f"/api/v1/data/backups/{encoded}/download").status_code == 200
+    restored = logged_client.post(
+        f"/api/v1/data/backups/{encoded}/restore", json={"include_settings": True}
+    )
+    assert restored.status_code == 200
+    # 重命名为已存在的备份名 → 409（拒绝覆盖）
+    name2 = logged_client.post("/api/v1/data/backups", json={}).json()["name"]
+    conflict = logged_client.put(
+        f"/api/v1/data/backups/{name2}/rename", json={"new_name": new_name}
+    )
+    assert conflict.status_code == 409
+    # 非法新名 → 422；空名 → 422
+    for bad in ("../x.zip", "x.txt", ".h.zip"):
+        resp = logged_client.put(
+            f"/api/v1/data/backups/{name2}/rename", json={"new_name": bad}
+        )
+        assert resp.status_code == 422
+    assert (
+        logged_client.put(
+            f"/api/v1/data/backups/{name2}/rename", json={"new_name": "   "}
+        ).status_code
+        == 422
+    )
+    # 清理
+    assert logged_client.delete(f"/api/v1/data/backups/{encoded}").status_code == 200
+    assert logged_client.delete(f"/api/v1/data/backups/{name2}").status_code == 200

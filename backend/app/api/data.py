@@ -10,10 +10,11 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth import require_auth
 from app.data_transfer import (
@@ -21,6 +22,7 @@ from app.data_transfer import (
     build_package,
     create_backup,
     list_backups,
+    rename_backup,
     resolve_backup,
     validate_package,
 )
@@ -40,11 +42,23 @@ class RestoreRequest(BaseModel):
     include_settings: bool = False
 
 
+class RenameBackupRequest(BaseModel):
+    """备份重命名请求。"""
+
+    new_name: str = Field(min_length=1, max_length=255)
+
+
 def _tmp_zip() -> Path:
     """创建可安全删除的临时 zip 文件（mkstemp 的 fd 必须关闭，否则 Windows 上无法 unlink）。"""
     fd, name = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     return Path(name)
+
+
+def _attachment_header(fname: str) -> str:
+    """Content-Disposition：HTTP 头仅 latin-1，中文文件名用 RFC 5987 filename* 编码。"""
+    ascii_name = fname.encode("ascii", errors="ignore").decode().strip() or "download.zip"
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(fname)}'
 
 
 def _stream_zip(tmp: Path, fname: str) -> StreamingResponse:
@@ -61,7 +75,7 @@ def _stream_zip(tmp: Path, fname: str) -> StreamingResponse:
     return StreamingResponse(
         gen(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        headers={"Content-Disposition": _attachment_header(fname)},
     )
 
 
@@ -193,6 +207,26 @@ async def restore_backup(request: Request, name: str, payload: RestoreRequest) -
     return {"ok": True, **stats, "backup": backup_path.name}
 
 
+@router.put("/backups/{name}/rename")
+async def rename_backup_endpoint(
+    request: Request, name: str, payload: RenameBackupRequest
+) -> dict:
+    """重命名备份文件：新名须为安全 .zip 文件名，目标已存在返回 409。"""
+    data_dir = request.app.state.settings.data_dir
+    new_name = payload.new_name.strip()
+    try:
+        new_path = await asyncio.to_thread(rename_backup, data_dir, name, new_name)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except FileExistsError as e:
+        logger.warning("Backup rename rejected (%s -> %s): %s", name, new_name, e)
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    logger.info("Backup renamed: %s -> %s", name, new_path.name)
+    return {"ok": True, "name": new_path.name}
+
+
 @router.get("/backups/{name}/download")
 async def download_backup(request: Request, name: str) -> StreamingResponse:
     """下载备份 zip（备份文件保留，不删除）。"""
@@ -208,7 +242,7 @@ async def download_backup(request: Request, name: str) -> StreamingResponse:
     return StreamingResponse(
         gen(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        headers={"Content-Disposition": _attachment_header(name)},
     )
 
 
