@@ -1,5 +1,7 @@
 # ===== 第一阶段：前端构建 =====
-FROM node:22-alpine AS frontend
+# $BUILDPLATFORM：JS 产物与平台无关，固定在 runner 原生架构上构建一次。
+# arm64 下用 QEMU 模拟 npm/V8 极慢且偶发 SIGILL 崩溃导致整个构建挂起。
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
 
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
